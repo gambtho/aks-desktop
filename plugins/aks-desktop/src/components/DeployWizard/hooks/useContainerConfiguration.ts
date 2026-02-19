@@ -77,80 +77,96 @@ export interface ContainerConfig {
   containerPreviewYaml: string;
 }
 
-export function useContainerConfiguration(initialApplicationName?: string) {
-  const [config, setConfig] = useState<ContainerConfig>(() => ({
-    // Step navigation
-    containerStep: 0,
+export function useContainerConfiguration(
+  initialApplicationName?: string,
+  initialConfig?: Partial<ContainerConfig>
+) {
+  const [config, setConfig] = useState<ContainerConfig>(() => {
+    const defaults: ContainerConfig = {
+      // Step navigation
+      containerStep: 0,
 
-    // Basics
-    appName: initialApplicationName || '',
-    containerImage: '',
-    replicas: 1,
+      // Basics
+      appName: initialApplicationName || '',
+      containerImage: '',
+      replicas: 1,
 
-    // Networking
-    targetPort: 80,
-    servicePort: 80,
-    useCustomServicePort: false,
-    serviceType: 'ClusterIP',
+      // Networking
+      targetPort: 80,
+      servicePort: 80,
+      useCustomServicePort: false,
+      serviceType: 'ClusterIP',
 
-    // Resources
-    enableResources: true,
-    cpuRequest: '100m',
-    cpuLimit: '500m',
-    memoryRequest: '128Mi',
-    memoryLimit: '512Mi',
+      // Resources
+      enableResources: true,
+      cpuRequest: '100m',
+      cpuLimit: '500m',
+      memoryRequest: '128Mi',
+      memoryLimit: '512Mi',
 
-    // Environment variables
-    envVars: [{ key: '', value: '' }],
+      // Environment variables
+      envVars: [{ key: '', value: '' }],
 
-    // Health probes
-    enableLivenessProbe: true,
-    enableReadinessProbe: true,
-    enableStartupProbe: true,
-    showProbeConfigs: false,
-    livenessPath: '/',
-    readinessPath: '/',
-    startupPath: '/',
+      // Health probes
+      enableLivenessProbe: true,
+      enableReadinessProbe: true,
+      enableStartupProbe: true,
+      showProbeConfigs: false,
+      livenessPath: '/',
+      readinessPath: '/',
+      startupPath: '/',
 
-    // Liveness probe timings
-    livenessInitialDelay: 10,
-    livenessPeriod: 10,
-    livenessTimeout: 1,
-    livenessFailure: 3,
-    livenessSuccess: 1,
+      // Liveness probe timings
+      livenessInitialDelay: 10,
+      livenessPeriod: 10,
+      livenessTimeout: 1,
+      livenessFailure: 3,
+      livenessSuccess: 1,
 
-    // Readiness probe timings
-    readinessInitialDelay: 5,
-    readinessPeriod: 10,
-    readinessTimeout: 1,
-    readinessFailure: 3,
-    readinessSuccess: 1,
+      // Readiness probe timings
+      readinessInitialDelay: 5,
+      readinessPeriod: 10,
+      readinessTimeout: 1,
+      readinessFailure: 3,
+      readinessSuccess: 1,
 
-    // Startup probe timings
-    startupInitialDelay: 0,
-    startupPeriod: 10,
-    startupTimeout: 1,
-    startupFailure: 30,
-    startupSuccess: 1,
+      // Startup probe timings
+      startupInitialDelay: 0,
+      startupPeriod: 10,
+      startupTimeout: 1,
+      startupFailure: 30,
+      startupSuccess: 1,
 
-    // HPA
-    enableHpa: false,
-    hpaMinReplicas: 1,
-    hpaMaxReplicas: 5,
-    hpaTargetCpu: 70,
+      // HPA
+      enableHpa: false,
+      hpaMinReplicas: 1,
+      hpaMaxReplicas: 5,
+      hpaTargetCpu: 70,
 
-    // Security context
-    runAsNonRoot: false,
-    readOnlyRootFilesystem: false,
-    allowPrivilegeEscalation: false,
+      // Security context
+      runAsNonRoot: false,
+      readOnlyRootFilesystem: false,
+      allowPrivilegeEscalation: false,
 
-    // Affinity
-    enablePodAntiAffinity: true,
-    enableTopologySpreadConstraints: true,
+      // Affinity
+      enablePodAntiAffinity: true,
+      enableTopologySpreadConstraints: true,
 
-    // Preview
-    containerPreviewYaml: '',
-  }));
+      // Preview
+      containerPreviewYaml: '',
+    };
+
+    if (!initialConfig) return defaults;
+
+    // Merge caller-provided overrides, excluding UI-only fields that should
+    // always start at their defaults.
+    const overrides = { ...initialConfig };
+    delete (overrides as Partial<ContainerConfig>).containerStep;
+    delete (overrides as Partial<ContainerConfig>).containerPreviewYaml;
+    delete (overrides as Partial<ContainerConfig>).showProbeConfigs;
+
+    return { ...defaults, ...overrides };
+  });
 
   // Sync servicePort with targetPort when custom service port is disabled
   useEffect(() => {

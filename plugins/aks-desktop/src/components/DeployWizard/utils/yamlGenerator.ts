@@ -159,6 +159,8 @@ kind: Deployment
 metadata:
   name: ${name}
   namespace: ${ns}
+  annotations:
+    aks-desktop/deployed-by: manual
 spec:
   replicas: ${config.replicas}
   selector:

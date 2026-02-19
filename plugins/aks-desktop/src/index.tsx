@@ -20,9 +20,13 @@ import { Redirect } from 'react-router-dom';
 import RegisterAKSClusterPage from './components/AKS/RegisterAKSClusterPage';
 import AzureLoginPage from './components/AzureAuth/AzureLoginPage';
 import AzureProfilePage from './components/AzureAuth/AzureProfilePage';
+import ConfigurePipelineButton from './components/ConfigurePipeline/ConfigurePipelineButton';
 import CreateAKSProject from './components/CreateAKSProject/CreateAKSProject';
 import AKSProjectDeleteButton from './components/DeleteAKSProject/AKSProjectDeleteButton';
-import DeployButton from './components/Deploy/DeployButton';
+import PipelineCard from './components/Deployments/PipelineCard';
+import DeployTab from './components/DeployTab/DeployTab';
+import { GitHubAuthStatusButton } from './components/GitHubPipeline/components/GitHubAuthStatusButton';
+import { GitHubAuthProvider } from './components/GitHubPipeline/GitHubAuthContext';
 import ImportAKSProjects from './components/ImportAKSProjects/ImportAKSProjects';
 import InfoTab from './components/InfoTab/InfoTab';
 import AzureLogo from './components/Logo/Logo';
@@ -231,15 +235,6 @@ if (Headlamp.isRunningAsApp()) {
     icon: 'logos:microsoft-azure',
   });
 
-  // register import existing AKS projects
-  // registerCustomCreateProject({
-  //   id: 'aks-import',
-  //   name: 'Import AKS projects',
-  //   description: 'Import existing AKS managed namespaces as projects',
-  //   component: () => <Redirect to="/projects/import-aks-projects" />,
-  //   icon: 'mdi:import',
-  // });
-
   // Register AKS as a cluster provider in the "Add Cluster" page
   registerAddClusterProvider({
     title: 'Azure Kubernetes Service',
@@ -276,13 +271,39 @@ registerProjectOverviewSection({
   component: ({ project }) => <MetricsCard project={project} />,
 });
 
+registerProjectOverviewSection({
+  id: 'pipeline-overview',
+  // @ts-ignore todo: there is an isEnabled prop in registerProjectOverviewSection it's just not present in the types yet. We need to push our changes to headlamp
+  isEnabled: isAksProject,
+  // GitHubAuthProvider is duplicated across three registrations (here, DeployTab, and
+  // ConfigurePipelineButton) because Headlamp renders each registered component in an
+  // independent React tree — there is no shared ancestor to hoist the provider into.
+  // Token state is shared across instances via localStorage inside useGitHubAuth.
+  component: ({ project }) => (
+    <GitHubAuthProvider>
+      <PipelineCard project={project} />
+    </GitHubAuthProvider>
+  ),
+});
+
 registerProjectDetailsTab({
   id: 'info',
   label: 'Info',
   icon: 'mdi:information',
-  component: ({ project }) => {
-    return <InfoTab project={project} />;
-  },
+  component: ({ project }) => <InfoTab project={project} />,
+});
+
+registerProjectDetailsTab({
+  id: 'deploy',
+  label: 'Deploy',
+  icon: 'mdi:cloud-upload',
+  // @ts-ignore todo: Type 'unknown' is not assignable to type 'boolean'. isAksProject is a promise
+  isEnabled: isAksProject,
+  component: ({ project }) => (
+    <GitHubAuthProvider>
+      <DeployTab project={project} />
+    </GitHubAuthProvider>
+  ),
 });
 
 registerProjectDetailsTab({
@@ -298,9 +319,7 @@ registerProjectDetailsTab({
   icon: 'mdi:chart-line',
   // @ts-ignore todo: Type 'unknown' is not assignable to type 'boolean'. isAksProject is a promise
   isEnabled: isAksProject,
-  component: ({ project }) => {
-    return <MetricsTab project={project} />;
-  },
+  component: ({ project }) => <MetricsTab project={project} />,
 });
 
 registerProjectDetailsTab({
@@ -309,15 +328,27 @@ registerProjectDetailsTab({
   icon: 'mdi:chart-timeline-variant',
   // @ts-ignore todo: Type 'unknown' is not assignable to type 'boolean'. isAksProject is a promise
   isEnabled: isAksProject,
-  component: ({ project }) => {
-    return <ScalingTab project={project} />;
-  },
+  component: ({ project }) => <ScalingTab project={project} />,
 });
 
-// Register Deploy Application button in project header
+// Register GitHub auth status icon in project header
 registerProjectHeaderAction({
-  id: 'deploy-application',
-  component: ({ project }) => <DeployButton project={project} />,
+  id: 'github-auth-status',
+  component: () => (
+    <GitHubAuthProvider>
+      <GitHubAuthStatusButton />
+    </GitHubAuthProvider>
+  ),
+});
+
+// Register Configure Pipeline button in project header
+registerProjectHeaderAction({
+  id: 'configure-pipeline',
+  component: ({ project }) => (
+    <GitHubAuthProvider>
+      <ConfigurePipelineButton project={project} />
+    </GitHubAuthProvider>
+  ),
 });
 
 // Register custom delete button for AKS projects only

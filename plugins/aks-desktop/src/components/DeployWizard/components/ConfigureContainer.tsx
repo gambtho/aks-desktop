@@ -52,7 +52,6 @@ export default function ConfigureContainer({
   requireContainerImage = true,
 }: ConfigureContainerProps) {
   const { t } = useTranslation();
-
   return (
     <>
       <Typography variant="h6" component="h2" gutterBottom>
