@@ -2,7 +2,7 @@
 // Licensed under the Apache 2.0.
 
 import { Icon } from '@iconify/react';
-import { Badge, Box, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material';
+import { Badge, CircularProgress, IconButton, Tooltip } from '@mui/material';
 import React from 'react';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
 
@@ -11,7 +11,7 @@ import { useGitHubAuthContext } from '../GitHubAuthContext';
  * so users can sign in / see sign-in status from anywhere in the project.
  */
 export function GitHubAuthStatusButton() {
-  const { authState, startDeviceFlow } = useGitHubAuthContext();
+  const { authState, startOAuth } = useGitHubAuthContext();
 
   if (authState.isRestoring) {
     return (
@@ -40,18 +40,9 @@ export function GitHubAuthStatusButton() {
     );
   }
 
-  if (authState.isAuthorizingDevice && authState.userCode) {
+  if (authState.isAuthorizingBrowser) {
     return (
-      <Tooltip
-        title={
-          <Box sx={{ textAlign: 'center' }}>
-            <Typography variant="body2">Enter code on GitHub:</Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700, mt: 0.5 }}>
-              {authState.userCode}
-            </Typography>
-          </Box>
-        }
-      >
+      <Tooltip title="Waiting for browser authorization...">
         <IconButton size="small">
           <CircularProgress size={18} />
         </IconButton>
@@ -61,7 +52,7 @@ export function GitHubAuthStatusButton() {
 
   return (
     <Tooltip title="Sign in to GitHub">
-      <IconButton size="small" onClick={startDeviceFlow}>
+      <IconButton size="small" onClick={startOAuth}>
         <Icon icon="mdi:github" style={{ fontSize: 22, opacity: 0.5 }} />
       </IconButton>
     </Tooltip>
