@@ -34,15 +34,13 @@ export type PipelineDeploymentState =
 export interface GitHubAuthState {
   isAuthenticated: boolean;
   isRestoring: boolean;
-  isAuthorizingDevice: boolean;
+  isAuthorizingBrowser: boolean;
   /** Expires ~8 hours. */
   token: string | null;
   /** Expires ~6 months. */
   refreshToken: string | null;
   /** ISO timestamp. */
   expiresAt: string | null;
-  userCode: string | null;
-  verificationUri: string | null;
   username: string | null;
   error: string | null;
 }

@@ -6,26 +6,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createOctokitClient, getCurrentUser } from '../../../utils/github/github-api';
 import {
   clearTokens,
-  initiateDeviceFlow,
   isTokenExpired,
   loadTokens,
+  onOAuthCallback,
   refreshAccessToken,
-  requestAccessToken,
   saveTokens,
+  startBrowserOAuth,
   TokenResponse,
 } from '../../../utils/github/github-auth';
-import { openExternalUrl } from '../../../utils/shared/openExternalUrl';
 import { GitHubAuthState } from '../types';
 
 const INITIAL_AUTH_STATE: GitHubAuthState = {
   isAuthenticated: false,
   isRestoring: true,
-  isAuthorizingDevice: false,
+  isAuthorizingBrowser: false,
   token: null,
   refreshToken: null,
   expiresAt: null,
-  userCode: null,
-  verificationUri: null,
   username: null,
   error: null,
 };
@@ -33,17 +30,16 @@ const INITIAL_AUTH_STATE: GitHubAuthState = {
 export interface UseGitHubAuthResult {
   authState: GitHubAuthState;
   octokit: Octokit | null;
-  startDeviceFlow: () => void;
+  startOAuth: () => void;
   reset: () => Promise<void>;
 }
 
 /**
- * Manages GitHub OAuth device flow authorization, token storage/refresh,
+ * Manages GitHub OAuth browser flow authorization, token storage/refresh,
  * and Octokit client derivation.
  */
 export const useGitHubAuth = (): UseGitHubAuthResult => {
   const [authState, setAuthState] = useState<GitHubAuthState>(INITIAL_AUTH_STATE);
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isAuthorizingRef = useRef(false);
 
   // Ref tracking the current token for cross-tree sync comparison.
@@ -122,12 +118,52 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
     };
 
     restoreSession();
-    return () => {
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-      }
-    };
   }, [deduplicatedRefresh]);
+
+  // Listen for OAuth callback from the Electron main process
+  useEffect(() => {
+    const unsubscribe = onOAuthCallback(async result => {
+      isAuthorizingRef.current = false;
+
+      if (!result.success || !result.accessToken || !result.refreshToken || !result.expiresAt) {
+        setAuthState(prev => ({
+          ...prev,
+          isAuthorizingBrowser: false,
+          error: result.error ?? 'Authorization failed',
+        }));
+        return;
+      }
+
+      const { accessToken, refreshToken, expiresAt } = result;
+      await saveTokens({ accessToken, refreshToken, expiresAt });
+
+      try {
+        const client = createOctokitClient(accessToken);
+        const user = await getCurrentUser(client);
+        setAuthState(prev => ({
+          ...prev,
+          isAuthenticated: true,
+          isAuthorizingBrowser: false,
+          token: accessToken,
+          refreshToken,
+          expiresAt,
+          username: user.login,
+          error: null,
+        }));
+        window.dispatchEvent(new Event('github-auth-update'));
+      } catch (userErr) {
+        await clearTokens();
+        console.error('OAuth callback: failed to fetch current user:', userErr);
+        setAuthState(prev => ({
+          ...prev,
+          isAuthorizingBrowser: false,
+          error: userErr instanceof Error ? userErr.message : 'Failed to verify GitHub user',
+        }));
+      }
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Proactive token refresh: check every 5 minutes whether the token needs refreshing.
   // Uses refs to avoid recreating the interval on every state change.
@@ -209,13 +245,11 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
           ...prev,
           isAuthenticated: true,
           isRestoring: false,
-          isAuthorizingDevice: false,
+          isAuthorizingBrowser: false,
           token: stored.accessToken,
           refreshToken: stored.refreshToken,
           expiresAt: stored.expiresAt,
           username: user.login,
-          userCode: null,
-          verificationUri: null,
           error: null,
         }));
       } catch {
@@ -227,132 +261,33 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
     return () => window.removeEventListener('github-auth-update', handleAuthUpdate);
   }, []);
 
-  const startDeviceFlow = useCallback(async () => {
+  const startOAuth = useCallback(async () => {
     if (isAuthorizingRef.current) return;
     isAuthorizingRef.current = true;
     try {
-      const flow = await initiateDeviceFlow();
-
       setAuthState(prev => ({
         ...prev,
-        isAuthorizingDevice: true,
-        userCode: flow.userCode,
-        verificationUri: flow.verificationUri,
+        isAuthorizingBrowser: true,
         error: null,
       }));
-
-      openExternalUrl(flow.verificationUri);
-
-      let pollCount = 0;
-      const maxPolls = Math.ceil(flow.expiresIn / flow.interval);
-      let currentInterval = flow.interval;
-
-      const poll = () => {
-        pollRef.current = setTimeout(async () => {
-          if (!isAuthorizingRef.current) return;
-          pollCount++;
-          try {
-            const tokens = await requestAccessToken(flow.deviceCode);
-            pollRef.current = null;
-            isAuthorizingRef.current = false;
-
-            const expiresAt = new Date(Date.now() + tokens.expiresIn * 1000).toISOString();
-            await saveTokens({
-              accessToken: tokens.accessToken,
-              refreshToken: tokens.refreshToken,
-              expiresAt,
-            });
-
-            let user;
-            try {
-              const client = createOctokitClient(tokens.accessToken);
-              user = await getCurrentUser(client);
-            } catch (userErr) {
-              await clearTokens();
-              pollRef.current = null;
-              isAuthorizingRef.current = false;
-              console.error('Device flow: failed to fetch current user:', userErr);
-              setAuthState(prev => ({
-                ...prev,
-                isAuthorizingDevice: false,
-                error: userErr instanceof Error ? userErr.message : 'Failed to verify GitHub user',
-                userCode: null,
-                verificationUri: null,
-              }));
-              return;
-            }
-
-            setAuthState(prev => ({
-              ...prev,
-              isAuthenticated: true,
-              isAuthorizingDevice: false,
-              token: tokens.accessToken,
-              refreshToken: tokens.refreshToken,
-              expiresAt,
-              username: user.login,
-              userCode: null,
-              verificationUri: null,
-            }));
-            window.dispatchEvent(new Event('github-auth-update'));
-          } catch (error) {
-            if (error instanceof Error && error.message === 'slow_down') {
-              currentInterval += 5;
-              poll();
-              return;
-            }
-            if (error instanceof Error && error.message === 'authorization_pending') {
-              if (pollCount >= maxPolls) {
-                pollRef.current = null;
-                isAuthorizingRef.current = false;
-                setAuthState(prev => ({
-                  ...prev,
-                  isAuthorizingDevice: false,
-                  error: 'Authorization timed out. Please try again.',
-                  userCode: null,
-                  verificationUri: null,
-                }));
-                return;
-              }
-              poll();
-              return;
-            }
-            // Fatal error (expired_token, access_denied, or network error)
-            pollRef.current = null;
-            isAuthorizingRef.current = false;
-            console.error('Device flow authorization failed:', error);
-            setAuthState(prev => ({
-              ...prev,
-              isAuthorizingDevice: false,
-              error: error instanceof Error ? error.message : 'Authorization failed',
-              userCode: null,
-              verificationUri: null,
-            }));
-          }
-        }, currentInterval * 1000);
-      };
-
-      poll();
+      await startBrowserOAuth();
     } catch (error) {
       isAuthorizingRef.current = false;
-      console.error('Failed to initiate device flow:', error);
+      console.error('Failed to start browser OAuth:', error);
       setAuthState(prev => ({
         ...prev,
-        isAuthorizingDevice: false,
+        isAuthorizingBrowser: false,
         error: error instanceof Error ? error.message : 'Failed to start authorization',
       }));
     }
   }, []);
 
   const reset = useCallback(async () => {
-    if (pollRef.current) {
-      clearTimeout(pollRef.current);
-      pollRef.current = null;
-    }
     isAuthorizingRef.current = false;
     await clearTokens();
     setAuthState({ ...INITIAL_AUTH_STATE, isRestoring: false });
     window.dispatchEvent(new Event('github-auth-update'));
   }, []);
 
-  return { authState, octokit, startDeviceFlow, reset };
+  return { authState, octokit, startOAuth, reset };
 };
