@@ -45,7 +45,7 @@ function getStatusLabel(status: WorkflowRunStatus | null, conclusion: WorkflowRu
 function PipelineCard({ project }: PipelineCardProps) {
   const cluster = project.clusters?.[0] ?? '';
   const namespace = project.namespaces?.[0] ?? '';
-  const { octokit, authState, startDeviceFlow } = useGitHubAuthContext();
+  const { octokit, authState, startOAuth } = useGitHubAuthContext();
   const pipelineStatus = usePipelineStatus(cluster, namespace);
   const { runs, loading, error } = usePipelineRuns(octokit, pipelineStatus.repos);
 
@@ -72,12 +72,11 @@ function PipelineCard({ project }: PipelineCardProps) {
 
       {pipelineStatus.isConfigured && !authState.isAuthenticated && !authState.isRestoring && (
         <Box>
-          {authState.isAuthorizingDevice && authState.userCode ? (
+          {authState.isAuthorizingBrowser ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <CircularProgress size={14} />
               <Typography variant="body2" color="text.secondary">
-                Enter code <strong style={{ fontFamily: 'monospace' }}>{authState.userCode}</strong>{' '}
-                on GitHub
+                Waiting for browser authorization...
               </Typography>
             </Box>
           ) : (
@@ -85,7 +84,7 @@ function PipelineCard({ project }: PipelineCardProps) {
               variant="body2"
               color="primary"
               sx={{ cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-              onClick={startDeviceFlow}
+              onClick={startOAuth}
             >
               Sign in to GitHub to view pipeline runs.
             </Typography>

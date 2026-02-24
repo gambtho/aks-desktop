@@ -101,19 +101,12 @@ export function PipelineDeployDialog({
             </Typography>
           </Box>
           {!gitHubAuth.authState.isAuthenticated &&
-            (gitHubAuth.authState.isAuthorizingDevice && gitHubAuth.authState.userCode ? (
+            (gitHubAuth.authState.isAuthorizingBrowser ? (
               <Alert severity="info" sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ mb: 1 }}>
-                  Enter code{' '}
-                  <strong style={{ fontFamily: 'monospace', letterSpacing: 2 }}>
-                    {gitHubAuth.authState.userCode}
-                  </strong>{' '}
-                  on GitHub to authorize.
-                </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <CircularProgress size={14} />
                   <Typography variant="body2" color="text.secondary">
-                    Waiting for authorization...
+                    Waiting for browser authorization...
                   </Typography>
                 </Box>
               </Alert>
@@ -122,7 +115,7 @@ export function PipelineDeployDialog({
                 severity="warning"
                 sx={{ mb: 2 }}
                 action={
-                  <Button color="inherit" size="small" onClick={gitHubAuth.startDeviceFlow}>
+                  <Button color="inherit" size="small" onClick={gitHubAuth.startOAuth}>
                     Sign in
                   </Button>
                 }
