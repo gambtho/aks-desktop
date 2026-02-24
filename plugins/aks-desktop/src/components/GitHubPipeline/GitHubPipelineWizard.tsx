@@ -164,7 +164,7 @@ export default function GitHubPipelineWizard({
         return (
           <GitHubAuthScreen
             authState={gitHubAuth.authState}
-            onStartDeviceFlow={() => gitHubAuth.startDeviceFlow()}
+            onStartOAuth={() => gitHubAuth.startOAuth()}
             onCancel={onClose}
             onContinue={() => {
               pipeline.setAuthCompleted();

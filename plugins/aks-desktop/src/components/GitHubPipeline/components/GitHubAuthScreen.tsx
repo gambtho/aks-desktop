@@ -13,12 +13,11 @@ import {
   Typography,
 } from '@mui/material';
 import React, { useEffect, useRef, useState } from 'react';
-import { openExternalUrl } from '../../../utils/shared/openExternalUrl';
 import { GitHubAuthState } from '../types';
 
 interface GitHubAuthScreenProps {
   authState: GitHubAuthState;
-  onStartDeviceFlow: () => void;
+  onStartOAuth: () => void;
   onCancel: () => void;
   onContinue: () => void;
 }
@@ -33,12 +32,11 @@ const PERMISSIONS = [
 
 export function GitHubAuthScreen({
   authState,
-  onStartDeviceFlow,
+  onStartOAuth,
   onCancel,
   onContinue,
 }: GitHubAuthScreenProps) {
-  const { isAuthenticated, isAuthorizingDevice, userCode, verificationUri, username, error } =
-    authState;
+  const { isAuthenticated, isAuthorizingBrowser, username, error } = authState;
 
   // Auto-advance after authentication
   const [autoAdvancing, setAutoAdvancing] = useState(false);
@@ -90,7 +88,7 @@ export function GitHubAuthScreen({
     );
   }
 
-  if (isAuthorizingDevice && userCode) {
+  if (isAuthorizingBrowser) {
     return (
       <Card sx={{ maxWidth: 500, width: '100%', textAlign: 'center', p: 4 }}>
         <CardContent>
@@ -100,56 +98,27 @@ export function GitHubAuthScreen({
             sx={{ fontSize: 48, mb: 2, display: 'block', mx: 'auto' }}
           />
           <Typography variant="h5" sx={{ mb: 1, fontWeight: 600 }}>
-            Enter code on GitHub
+            Authorize on GitHub
           </Typography>
           <Typography variant="body2" sx={{ mb: 3, color: 'text.secondary' }}>
-            Enter this code on GitHub to authorize AKS Desktop
+            Complete authorization in your browser to continue
           </Typography>
-
-          <Box
-            sx={{
-              py: 2,
-              px: 4,
-              mb: 3,
-              bgcolor: 'action.hover',
-              borderRadius: 2,
-              display: 'inline-block',
-            }}
-          >
-            <Typography
-              variant="h3"
-              sx={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: 4 }}
-            >
-              {userCode}
-            </Typography>
-          </Box>
 
           <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
             <CircularProgress size={24} sx={{ mr: 1.5 }} />
             <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              Waiting for authorization...
+              Waiting for browser authorization...
             </Typography>
           </Box>
 
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => openExternalUrl(verificationUri ?? '')}
-              startIcon={<Icon icon="mdi:open-in-new" />}
-              sx={{ textTransform: 'none', fontSize: 14 }}
-            >
-              Open GitHub
-            </Button>
-            <Button
-              variant="outlined"
-              color="secondary"
-              onClick={onCancel}
-              sx={{ textTransform: 'none', fontSize: 14 }}
-            >
-              Cancel
-            </Button>
-          </Box>
+          <Button
+            variant="outlined"
+            color="secondary"
+            onClick={onCancel}
+            sx={{ textTransform: 'none', fontSize: 14 }}
+          >
+            Cancel
+          </Button>
         </CardContent>
       </Card>
     );
@@ -193,7 +162,7 @@ export function GitHubAuthScreen({
         <Button
           variant="contained"
           color="primary"
-          onClick={onStartDeviceFlow}
+          onClick={onStartOAuth}
           startIcon={<Icon icon="mdi:github" />}
           sx={{ minWidth: 200, py: 1.5, px: 4, textTransform: 'none', fontSize: 16 }}
         >
