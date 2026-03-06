@@ -18,3 +18,6 @@ export const COPILOT_BOT_USERS = new Set(['copilot-swe-agent[bot]', 'copilot[bot
 
 /** Default image tag mandated in agent instructions. */
 export const DEFAULT_IMAGE_TAG = '1.0';
+
+/** Custom DOM event used to open the pipeline drawer from a separate React tree. */
+export const OPEN_CONFIGURE_PIPELINE_EVENT = 'open-configure-pipeline';

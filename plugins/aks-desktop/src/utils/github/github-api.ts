@@ -159,9 +159,10 @@ export async function checkAppInstallation(
           octokit.apps.listInstallationReposForAuthenticatedUser,
           { installation_id: installation.id, per_page: 100 },
           response =>
-            (response.data as unknown as { repositories: typeof response.data }).repositories
+            (response.data as unknown as { repositories: typeof response.data }).repositories ??
+            response.data
         );
-        if (repos.some(r => r.full_name === `${owner}/${repo}`)) {
+        if (repos.some(r => r?.full_name === `${owner}/${repo}`)) {
           return { installed: true, installUrl: null };
         }
       } catch (err) {

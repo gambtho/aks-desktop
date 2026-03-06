@@ -123,9 +123,8 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
   // Listen for OAuth callback from the Electron main process
   useEffect(() => {
     const unsubscribe = onOAuthCallback(async result => {
-      isAuthorizingRef.current = false;
-
       if (!result.success || !result.accessToken || !result.refreshToken || !result.expiresAt) {
+        isAuthorizingRef.current = false;
         setAuthState(prev => ({
           ...prev,
           isAuthorizingBrowser: false,
@@ -150,8 +149,13 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
           username: user.login,
           error: null,
         }));
+        // Notify other React trees. Keep isAuthorizingRef true until after
+        // the event dispatch so the cross-tree handler in THIS instance
+        // bails out instead of re-reading (potentially stale) stored tokens.
         window.dispatchEvent(new Event('github-auth-update'));
+        isAuthorizingRef.current = false;
       } catch (userErr) {
+        isAuthorizingRef.current = false;
         await clearTokens();
         console.error('OAuth callback: failed to fetch current user:', userErr);
         setAuthState(prev => ({
@@ -227,7 +231,11 @@ export const useGitHubAuth = (): UseGitHubAuthResult => {
 
       const stored = await loadTokens();
       if (!stored) {
-        // Tokens cleared by another tree — sign out
+        // Tokens cleared by another tree — sign out.
+        // But if this instance already holds a valid token (e.g. it just
+        // completed OAuth and the storage backend is unavailable), don't
+        // wipe in-memory auth based on a storage read failure.
+        if (authTokenRef.current) return;
         setAuthState(prev =>
           prev.isAuthenticated ? { ...INITIAL_AUTH_STATE, isRestoring: false } : prev
         );
