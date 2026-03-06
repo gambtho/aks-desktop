@@ -118,17 +118,18 @@ describe('github-api', () => {
   });
 
   describe('checkRepoReadiness', () => {
-    it('should detect both files present', async () => {
+    it('should detect all files present', async () => {
       mockOctokit.repos.getContent.mockResolvedValue({ data: {} });
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: true,
+        hasDeployWorkflow: true,
       });
     });
 
-    it('should detect both files missing', async () => {
+    it('should detect all files missing', async () => {
       const notFoundError = new Error('Not Found');
       Object.assign(notFoundError, { status: 404 });
       mockOctokit.repos.getContent.mockRejectedValue(notFoundError);
@@ -137,6 +138,7 @@ describe('github-api', () => {
       expect(result).toEqual({
         hasSetupWorkflow: false,
         hasAgentConfig: false,
+        hasDeployWorkflow: false,
       });
     });
 
@@ -146,12 +148,14 @@ describe('github-api', () => {
 
       mockOctokit.repos.getContent
         .mockResolvedValueOnce({ data: {} }) // setup workflow exists
-        .mockRejectedValueOnce(notFoundError); // agent config missing
+        .mockRejectedValueOnce(notFoundError) // agent config missing
+        .mockRejectedValueOnce(notFoundError); // deploy workflow missing
 
       const result = await checkRepoReadiness(mockOctokit as never, 'owner', 'repo', 'main');
       expect(result).toEqual({
         hasSetupWorkflow: true,
         hasAgentConfig: false,
+        hasDeployWorkflow: false,
       });
     });
 

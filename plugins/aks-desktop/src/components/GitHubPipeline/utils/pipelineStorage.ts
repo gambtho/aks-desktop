@@ -78,12 +78,37 @@ export function setActivePipeline(cluster: string, ns: string, repo: GitHubRepo)
 }
 
 /**
- * Clears the active pipeline reference for a given cluster+namespace.
- * Called when the pipeline completes or the user dismisses it.
+ * Clears the active pipeline reference and all persisted pipeline state for a
+ * given cluster+namespace. Called when the user explicitly cancels / starts over.
+ *
+ * Scans all `pipeline-state:` entries to find any whose config matches the
+ * cluster+namespace, because the `active-pipeline:` pointer may have already
+ * been cleared by the orchestration hook.
  */
 export function clearActivePipeline(cluster: string, ns: string): void {
   try {
     localStorage.removeItem(`${ACTIVE_PIPELINE_KEY_PREFIX}${cluster}:${ns}`);
+
+    // Scan for pipeline state entries matching this cluster+namespace
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(STORAGE_KEY_PREFIX)) continue;
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (parsed?.config?.clusterName === cluster && parsed?.config?.namespace === ns) {
+          keysToRemove.push(key);
+        }
+      } catch {
+        // skip malformed entries
+      }
+    }
+    console.log('[PipelineStorage] clearActivePipeline', { cluster, ns, keysToRemove });
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
   } catch {
     // localStorage may be unavailable
   }

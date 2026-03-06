@@ -73,6 +73,11 @@ const loadPersistedState = (repoKey: string): PipelineState | null => {
     if (parsed?.__schemaVersion !== SCHEMA_VERSION) return null;
     if (!VALID_DEPLOYMENT_STATES.has(parsed.deploymentState as PipelineDeploymentState))
       return null;
+    // Terminal states have nothing to resume — discard and clean up
+    if (TERMINAL_STATES.has(parsed.deploymentState as PipelineDeploymentState)) {
+      localStorage.removeItem(STORAGE_KEY_PREFIX + repoKey);
+      return null;
+    }
     // Merge with INITIAL_STATE to fill in any missing sub-objects
     return {
       ...INITIAL_STATE,
@@ -88,8 +93,25 @@ const loadPersistedState = (repoKey: string): PipelineState | null => {
   }
 };
 
+/** Terminal states that don't need persistence — nothing to resume. */
+const TERMINAL_STATES: ReadonlySet<PipelineDeploymentState> = new Set([
+  'PipelineConfigured',
+  'Deployed',
+]);
+
 const persistState = (repoKey: string, state: PipelineState): void => {
   try {
+    if (TERMINAL_STATES.has(state.deploymentState)) {
+      // Clean up — no point keeping terminal state that blocks fresh starts
+      console.log(
+        '[PipelineState] persistState: removing terminal state',
+        repoKey,
+        state.deploymentState
+      );
+      localStorage.removeItem(STORAGE_KEY_PREFIX + repoKey);
+      return;
+    }
+    console.log('[PipelineState] persistState:', repoKey, state.deploymentState);
     localStorage.setItem(
       STORAGE_KEY_PREFIX + repoKey,
       JSON.stringify({ __schemaVersion: SCHEMA_VERSION, ...state })
@@ -146,6 +168,7 @@ const VALID_TRANSITIONS: Record<
 };
 
 function pipelineReducer(state: PipelineState, action: PipelineAction): PipelineState {
+  console.log('[PipelineState] dispatch', action.type, 'from', state.deploymentState);
   const validSources = VALID_TRANSITIONS[action.type];
   if (validSources && !validSources.has(state.deploymentState)) {
     console.warn(`Invalid pipeline transition: ${action.type} from ${state.deploymentState}`);
@@ -215,6 +238,20 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
 
     case 'SET_REPO_READINESS': {
       const { readiness } = action;
+      console.log('[PipelineState] SET_REPO_READINESS', {
+        currentState: state.deploymentState,
+        readiness,
+      });
+      // Deploy workflow already exists — pipeline is fully configured
+      if (readiness.hasDeployWorkflow) {
+        next = {
+          ...state,
+          deploymentState: 'PipelineConfigured',
+          repoReadiness: readiness,
+          updatedAt: now(),
+        };
+        break;
+      }
       const configComplete =
         Boolean(state.config?.identityId?.trim()) && Boolean(state.config?.appName?.trim());
       if (readiness.hasSetupWorkflow && readiness.hasAgentConfig && configComplete) {
@@ -333,6 +370,11 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
     }
 
     case 'LOAD_STATE':
+      console.log('[PipelineState] LOAD_STATE', {
+        from: state.deploymentState,
+        to: action.state.deploymentState,
+        hasConfig: !!action.state.config,
+      });
       return action.state;
   }
 
@@ -391,6 +433,11 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
     if (repoKey === prevRepoKeyRef.current) return;
     prevRepoKeyRef.current = repoKey;
     const persisted = repoKey ? loadPersistedState(repoKey) : null;
+    console.log('[PipelineState] useLayoutEffect repoKey changed', {
+      repoKey,
+      persisted: persisted?.deploymentState ?? null,
+      hasPersistedConfig: !!persisted?.config,
+    });
     const loaded = persisted ?? INITIAL_STATE;
     lastLoadedStateRef.current = loaded;
     dispatch({ type: 'LOAD_STATE', state: loaded });

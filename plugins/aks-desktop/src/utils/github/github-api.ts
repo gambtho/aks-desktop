@@ -5,6 +5,7 @@ import { Octokit } from '@octokit/rest';
 import {
   AGENT_CONFIG_PATH,
   COPILOT_SETUP_STEPS_PATH,
+  PIPELINE_WORKFLOW_FILENAME,
 } from '../../components/GitHubPipeline/constants';
 import type {
   GitHubRunConclusion,
@@ -116,12 +117,19 @@ export async function checkRepoReadiness(
   defaultBranch?: string
 ): Promise<RepoReadiness> {
   try {
-    const [hasSetupWorkflow, hasAgentConfig] = await Promise.all([
+    const [hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow] = await Promise.all([
       fileExists(octokit, owner, repo, COPILOT_SETUP_STEPS_PATH, defaultBranch),
       fileExists(octokit, owner, repo, AGENT_CONFIG_PATH, defaultBranch),
+      fileExists(
+        octokit,
+        owner,
+        repo,
+        `.github/workflows/${PIPELINE_WORKFLOW_FILENAME}`,
+        defaultBranch
+      ),
     ]);
 
-    return { hasSetupWorkflow, hasAgentConfig };
+    return { hasSetupWorkflow, hasAgentConfig, hasDeployWorkflow };
   } catch (error) {
     throw apiError(`Failed to check repo readiness for ${owner}/${repo}`, error);
   }

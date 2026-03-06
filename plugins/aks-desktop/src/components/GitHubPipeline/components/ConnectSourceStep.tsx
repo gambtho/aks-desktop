@@ -4,7 +4,7 @@
 import { Icon } from '@iconify/react';
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material';
 import type { Octokit } from '@octokit/rest';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { GitHubRepo } from '../../../types/github';
 import { openExternalUrl } from '../../../utils/shared/openExternalUrl';
 import type { GitHubAuthState } from '../types';
@@ -27,7 +27,6 @@ interface ConnectSourceStepProps {
   appInstallNeeded?: boolean;
   appInstallUrl?: string | null;
   isCheckingInstall?: boolean;
-  onCheckInstall?: () => void;
   /** Override from the wizard: auth was completed (state machine advanced past auth). */
   authCompleted?: boolean;
 }
@@ -41,7 +40,6 @@ export function ConnectSourceStep({
   appInstallNeeded,
   appInstallUrl,
   isCheckingInstall,
-  onCheckInstall,
   authCompleted,
 }: ConnectSourceStepProps) {
   const { isAuthorizingBrowser, username, error } = authState;
@@ -136,40 +134,81 @@ export function ConnectSourceStep({
 
           {/* App install warning - shown inline below repo selector */}
           {appInstallNeeded && selectedRepo && (
-            <Alert
-              severity="warning"
-              sx={{ mt: 2 }}
-              action={
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  {appInstallUrl && (
-                    <Button
-                      size="small"
-                      onClick={() => openExternalUrl(appInstallUrl)}
-                      sx={{ textTransform: 'none' }}
-                    >
-                      Install
-                    </Button>
-                  )}
-                  <Button
-                    size="small"
-                    onClick={onCheckInstall}
-                    disabled={isCheckingInstall}
-                    sx={{ textTransform: 'none' }}
-                  >
-                    {isCheckingInstall ? <CircularProgress size={14} /> : 'Check Again'}
-                  </Button>
-                </Box>
-              }
-            >
-              The AKS Desktop GitHub App must be installed on{' '}
-              <strong>
-                {selectedRepo.owner}/{selectedRepo.repo}
-              </strong>{' '}
-              to continue.
-            </Alert>
+            <AppInstallAlert
+              selectedRepo={selectedRepo}
+              appInstallUrl={appInstallUrl}
+              isCheckingInstall={isCheckingInstall}
+            />
           )}
         </>
       )}
     </Box>
+  );
+}
+
+function AppInstallAlert({
+  selectedRepo,
+  appInstallUrl,
+  isCheckingInstall,
+}: {
+  selectedRepo: GitHubRepo;
+  appInstallUrl?: string | null;
+  isCheckingInstall?: boolean;
+}) {
+  const [installClicked, setInstallClicked] = useState(false);
+  // Brief flash when each poll check runs so the user sees activity
+  const [showCheckingDot, setShowCheckingDot] = useState(false);
+
+  useEffect(() => {
+    if (!isCheckingInstall) return;
+    setShowCheckingDot(true);
+    const timer = setTimeout(() => setShowCheckingDot(false), 800);
+    return () => clearTimeout(timer);
+  }, [isCheckingInstall]);
+
+  const handleInstallClick = () => {
+    if (appInstallUrl) {
+      openExternalUrl(appInstallUrl);
+      setInstallClicked(true);
+    }
+  };
+
+  const repoName = `${selectedRepo.owner}/${selectedRepo.repo}`;
+
+  return (
+    <Alert severity={installClicked ? 'info' : 'warning'} sx={{ mt: 2 }}>
+      <Typography variant="body2" sx={{ mb: 1 }}>
+        {installClicked
+          ? `Complete the installation in your browser. This will update automatically once the app is installed on ${repoName}.`
+          : `The AKS Desktop GitHub App must be installed on ${repoName} to continue.`}
+      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        {appInstallUrl && (
+          <Button
+            size="small"
+            variant={installClicked ? 'text' : 'outlined'}
+            onClick={handleInstallClick}
+            sx={{ textTransform: 'none' }}
+          >
+            {installClicked ? 'Reopen install page' : 'Install GitHub App'}
+          </Button>
+        )}
+        {installClicked && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
+            <CircularProgress size={12} />
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                transition: 'opacity 0.3s',
+                opacity: showCheckingDot ? 1 : 0.5,
+              }}
+            >
+              Checking{showCheckingDot ? '...' : ''}
+            </Typography>
+          </Box>
+        )}
+      </Box>
+    </Alert>
   );
 }

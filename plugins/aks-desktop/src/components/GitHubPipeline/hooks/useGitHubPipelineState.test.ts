@@ -50,6 +50,7 @@ function transitionTo(
     result.current.setRepoReadiness({
       hasSetupWorkflow: false,
       hasAgentConfig: false,
+      hasDeployWorkflow: false,
     })
   );
   if (target === 'ReadyForSetup') return;
@@ -195,6 +196,7 @@ describe('useGitHubPipelineState', () => {
         result.current.setRepoReadiness({
           hasSetupWorkflow: false,
           hasAgentConfig: false,
+          hasDeployWorkflow: false,
         });
       });
 
@@ -216,6 +218,7 @@ describe('useGitHubPipelineState', () => {
         result.current.setRepoReadiness({
           hasSetupWorkflow: true,
           hasAgentConfig: true,
+          hasDeployWorkflow: false,
         });
       });
 
@@ -236,6 +239,7 @@ describe('useGitHubPipelineState', () => {
         result.current.setRepoReadiness({
           hasSetupWorkflow: true,
           hasAgentConfig: true,
+          hasDeployWorkflow: false,
         });
       });
 
@@ -380,6 +384,7 @@ describe('useGitHubPipelineState', () => {
         result.current.setRepoReadiness({
           hasSetupWorkflow: true,
           hasAgentConfig: true,
+          hasDeployWorkflow: false,
         })
       );
       // Without complete config, this lands on ReadyForSetup.

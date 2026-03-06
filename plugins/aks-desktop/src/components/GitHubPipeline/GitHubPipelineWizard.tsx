@@ -208,7 +208,6 @@ export default function GitHubPipelineWizard({
             appInstallNeeded={isAppInstallNeeded}
             appInstallUrl={appInstallUrl}
             isCheckingInstall={isCheckingInstall}
-            onCheckInstall={checkRepoAndApp}
             authCompleted={deploymentState !== 'GitHubAuthorizationNeeded'}
           />
         );

@@ -13,7 +13,11 @@ import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfi
 import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
 import { createSetupPR, triggerCopilotAgent } from '../utils/pipelineOrchestration';
-import { ACTIVE_PIPELINE_KEY_PREFIX, RESUMABLE_STATES } from '../utils/pipelineStorage';
+import {
+  ACTIVE_PIPELINE_KEY_PREFIX,
+  getActivePipeline,
+  RESUMABLE_STATES,
+} from '../utils/pipelineStorage';
 import { useAgentPRDiscovery } from './useAgentPRDiscovery';
 import type { UseDeploymentHealthResult } from './useDeploymentHealth';
 import { useDeploymentHealth } from './useDeploymentHealth';
@@ -93,8 +97,17 @@ export const useGitHubPipelineOrchestration = ({
   const checkRepoInFlightRef = useRef(false);
   const installPollFailuresRef = useRef(0);
 
+  // Resolve the repo to resume from: explicit initialRepo prop, or
+  // an in-progress pipeline stored in localStorage.
+  const resolvedInitialRepo =
+    initialRepo ?? getActivePipeline(clusterName, namespace)?.repo ?? null;
+  // True when resuming from an existing pipeline (not a fresh start).
+  // Used to decide whether to shortcut to PipelineConfigured when the
+  // deploy workflow already exists on the repo.
+  const isResumingRef = useRef(!!resolvedInitialRepo);
+
   const gitHubAuth = useGitHubAuthContext();
-  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(initialRepo ?? null);
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(resolvedInitialRepo);
   const [appInstallUrl, setAppInstallUrl] = useState<string | null>(null);
   const [isCheckingInstall, setIsCheckingInstall] = useState(false);
   const repoKey = selectedRepo ? `${selectedRepo.owner}/${selectedRepo.repo}` : null;
@@ -205,7 +218,18 @@ export const useGitHubPipelineOrchestration = ({
           selectedRepo.repo,
           selectedRepo.defaultBranch
         );
-        pipeline.setRepoReadiness(readiness);
+        // Only shortcut to PipelineConfigured when resuming via initialRepo.
+        // When the user manually selected a repo (or used "Start over"),
+        // always show the setup review so they can re-run the pipeline.
+        console.log('[Orchestration] checkRepoAndApp readiness', {
+          readiness,
+          isResuming: isResumingRef.current,
+          initialRepo: !!initialRepo,
+        });
+        const effective = isResumingRef.current
+          ? readiness
+          : { ...readiness, hasDeployWorkflow: false };
+        pipeline.setRepoReadiness(effective);
       } catch (err) {
         pipeline.setFailed(err instanceof Error ? err.message : 'Failed to check repo');
       } finally {
@@ -222,6 +246,15 @@ export const useGitHubPipelineOrchestration = ({
       pipeline.setFailed,
     ]
   );
+
+  // Auto-advance when a repo is already selected (e.g. resuming after
+  // drawer close/reopen or initialRepo). Without this the wizard shows
+  // "Initializing…" forever because nothing triggers checkRepoAndApp.
+  useEffect(() => {
+    if (selectedRepo && gitHubAuth.octokit && pipeline.state.deploymentState === 'Configured') {
+      checkRepoAndApp();
+    }
+  }, [selectedRepo, gitHubAuth.octokit, pipeline.state.deploymentState, checkRepoAndApp]);
 
   const setupPrPolling = usePRPolling(
     gitHubAuth.octokit,
@@ -376,7 +409,7 @@ export const useGitHubPipelineOrchestration = ({
       } finally {
         setIsCheckingInstall(false);
       }
-    }, 5_000);
+    }, 3_000);
     return () => clearInterval(intervalId);
   }, [pipeline.state.deploymentState, gitHubAuth.octokit, selectedRepo, checkRepoAndApp]);
 
