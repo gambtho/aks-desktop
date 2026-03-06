@@ -2725,3 +2725,284 @@ export async function verifyNamespaceAccess(options: {
     };
   }
 }
+
+// ─── Workload Identity Management ──────────────────────────────────────────────
+
+// Azure CLI prefixes fatal errors with "ERROR: " in stderr
+function isAzError(stderr: string): boolean {
+  return stderr.includes('ERROR: ');
+}
+
+// Validates Azure resource names: alphanumeric, hyphens, underscores (1-128 chars)
+const AZ_RESOURCE_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
+function isValidAzResourceName(value: string): boolean {
+  return AZ_RESOURCE_NAME_PATTERN.test(value);
+}
+
+// Validates GitHub owner/repo/branch names (no path traversal or shell metacharacters)
+const GITHUB_NAME_PATTERN = /^[a-zA-Z0-9._-]{1,100}$/;
+function isValidGitHubName(value: string): boolean {
+  return GITHUB_NAME_PATTERN.test(value);
+}
+
+export interface ManagedIdentityResult {
+  success: boolean;
+  notFound?: boolean;
+  clientId?: string;
+  principalId?: string;
+  tenantId?: string;
+  error?: string;
+}
+
+export async function getManagedIdentity(options: {
+  identityName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+}): Promise<ManagedIdentityResult> {
+  const { identityName, resourceGroup, subscriptionId } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    return { success: false, error: 'Invalid subscription ID format' };
+  }
+  if (!isValidAzResourceName(identityName) || !isValidAzResourceName(resourceGroup)) {
+    return { success: false, error: 'Invalid identity name or resource group format' };
+  }
+
+  try {
+    const args = [
+      'identity',
+      'show',
+      '--name',
+      identityName,
+      '--resource-group',
+      resourceGroup,
+      '--subscription',
+      subscriptionId,
+      '--output',
+      'json',
+    ];
+
+    debugLog('Getting managed identity:', 'az', args.join(' '));
+    const { stdout, stderr } = await runCommandAsync('az', args);
+
+    if (stderr && needsRelogin(stderr)) {
+      return {
+        success: false,
+        error: 'Authentication required. Please log in to Azure CLI: az login',
+      };
+    }
+
+    if (stderr && (stderr.includes('ResourceNotFound') || stderr.includes('was not found'))) {
+      return { success: false, notFound: true };
+    }
+
+    if (stderr && isAzError(stderr)) {
+      return { success: false, error: `Failed to get managed identity: ${stderr}` };
+    }
+
+    const identity = JSON.parse(stdout);
+    return {
+      success: true,
+      clientId: identity.clientId,
+      principalId: identity.principalId,
+      tenantId: identity.tenantId,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: `Failed to get managed identity: ${errorMessage}` };
+  }
+}
+
+export async function createManagedIdentity(options: {
+  identityName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+}): Promise<ManagedIdentityResult> {
+  const { identityName, resourceGroup, subscriptionId } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    return { success: false, error: 'Invalid subscription ID format' };
+  }
+  if (!isValidAzResourceName(identityName) || !isValidAzResourceName(resourceGroup)) {
+    return { success: false, error: 'Invalid identity name or resource group format' };
+  }
+
+  try {
+    const args = [
+      'identity',
+      'create',
+      '--name',
+      identityName,
+      '--resource-group',
+      resourceGroup,
+      '--subscription',
+      subscriptionId,
+      '--tags',
+      'purpose=GitHub Actions OIDC',
+      'createdBy=AKS Desktop',
+      '--output',
+      'json',
+    ];
+
+    debugLog('Creating managed identity:', 'az', args.join(' '));
+    const { stdout, stderr } = await runCommandAsync('az', args);
+
+    if (stderr && needsRelogin(stderr)) {
+      return {
+        success: false,
+        error: 'Authentication required. Please log in to Azure CLI: az login',
+      };
+    }
+
+    if (stderr && isAzError(stderr)) {
+      return { success: false, error: `Failed to create managed identity: ${stderr}` };
+    }
+
+    const identity = JSON.parse(stdout);
+    return {
+      success: true,
+      clientId: identity.clientId,
+      principalId: identity.principalId,
+      tenantId: identity.tenantId,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: `Failed to create managed identity: ${errorMessage}` };
+  }
+}
+
+export async function assignRoleToIdentity(options: {
+  principalId: string;
+  subscriptionId: string;
+  resourceGroup: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { principalId, subscriptionId, resourceGroup } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    return { success: false, error: 'Invalid subscription ID format' };
+  }
+  if (!isValidGuid(principalId)) {
+    return { success: false, error: 'Invalid principal ID format' };
+  }
+  if (!isValidAzResourceName(resourceGroup)) {
+    return { success: false, error: 'Invalid resource group format' };
+  }
+
+  try {
+    const scope = `/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}`;
+    const args = [
+      'role',
+      'assignment',
+      'create',
+      '--assignee-object-id',
+      principalId,
+      '--assignee-principal-type',
+      'ServicePrincipal',
+      '--role',
+      'Azure Kubernetes Service Cluster User Role',
+      '--scope',
+      scope,
+      '--subscription',
+      subscriptionId,
+      '--output',
+      'json',
+    ];
+
+    debugLog('Assigning AKS Cluster User Role:', 'az', args.join(' '));
+    const { stderr } = await runCommandAsync('az', args);
+
+    if (stderr && needsRelogin(stderr)) {
+      return {
+        success: false,
+        error: 'Authentication required. Please log in to Azure CLI: az login',
+      };
+    }
+
+    // Role assignment already exists — treat as success
+    if (stderr && stderr.includes('RoleAssignmentExists')) {
+      debugLog('Role assignment already exists, continuing.');
+      return { success: true };
+    }
+
+    if (stderr && isAzError(stderr)) {
+      return { success: false, error: `Failed to assign role: ${stderr}` };
+    }
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: `Failed to assign role: ${errorMessage}` };
+  }
+}
+
+export async function createFederatedCredential(options: {
+  identityName: string;
+  resourceGroup: string;
+  subscriptionId: string;
+  repoOwner: string;
+  repoName: string;
+  branch: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { identityName, resourceGroup, subscriptionId, repoOwner, repoName, branch } = options;
+
+  if (!isValidGuid(subscriptionId)) {
+    return { success: false, error: 'Invalid subscription ID format' };
+  }
+  if (!isValidAzResourceName(identityName) || !isValidAzResourceName(resourceGroup)) {
+    return { success: false, error: 'Invalid identity name or resource group format' };
+  }
+  if (!isValidGitHubName(repoOwner) || !isValidGitHubName(repoName) || !isValidGitHubName(branch)) {
+    return { success: false, error: 'Invalid GitHub owner, repo name, or branch format' };
+  }
+
+  try {
+    const subject = `repo:${repoOwner}/${repoName}:ref:refs/heads/${branch}`;
+    const credentialName = `GitHubActions-${repoName}`;
+    const args = [
+      'identity',
+      'federated-credential',
+      'create',
+      '--identity-name',
+      identityName,
+      '--resource-group',
+      resourceGroup,
+      '--subscription',
+      subscriptionId,
+      '--name',
+      credentialName,
+      '--issuer',
+      'https://token.actions.githubusercontent.com',
+      '--subject',
+      subject,
+      '--audiences',
+      'api://AzureADTokenExchange',
+      '--output',
+      'json',
+    ];
+
+    debugLog('Creating federated credential:', 'az', args.join(' '));
+    const { stderr } = await runCommandAsync('az', args);
+
+    if (stderr && needsRelogin(stderr)) {
+      return {
+        success: false,
+        error: 'Authentication required. Please log in to Azure CLI: az login',
+      };
+    }
+
+    // Federated credential already exists — treat as success
+    if (stderr && stderr.includes('FederatedIdentityCredentialAlreadyExists')) {
+      debugLog('Federated credential already exists, continuing.');
+      return { success: true };
+    }
+
+    if (stderr && isAzError(stderr)) {
+      return { success: false, error: `Failed to create federated credential: ${stderr}` };
+    }
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: `Failed to create federated credential: ${errorMessage}` };
+  }
+}

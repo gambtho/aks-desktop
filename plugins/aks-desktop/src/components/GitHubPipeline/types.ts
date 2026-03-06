@@ -20,6 +20,7 @@ export type PipelineDeploymentState =
   | 'GitHubAuthorizationNeeded' // GitHub OAuth not authorized
   | 'AppInstallationNeeded' // GitHub App not installed on repo
   | 'CheckingRepo' // (*) Checking repo readiness (agent config exists?)
+  | 'WorkloadIdentitySetup' // (*) Creating/verifying workload identity for OIDC
   | 'ReadyForSetup' // (*) Repo checked, showing AgentSetupReview before creating PR
   | 'SetupPRCreating' // Creating the setup PR (pushing files, opening PR)
   | 'SetupPRAwaitingMerge' // Setup PR created, awaiting user merge

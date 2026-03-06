@@ -20,7 +20,6 @@ import type { PipelineConfig } from '../types';
 interface AgentSetupReviewProps {
   config: PipelineConfig;
   identityId: string;
-  onIdentityIdChange: (identityId: string) => void;
   appName: string;
   onAppNameChange: (appName: string) => void;
   filesExist?: boolean;
@@ -44,13 +43,11 @@ const FILE_LIST = [
 export function AgentSetupReview({
   config,
   identityId,
-  onIdentityIdChange,
   appName,
   onAppNameChange,
   filesExist = false,
   containerConfig,
 }: AgentSetupReviewProps) {
-  const needsIdentityId = !config.identityId.trim();
   const needsAppName = !config.appName.trim();
 
   return (
@@ -140,16 +137,14 @@ export function AgentSetupReview({
         </Box>
       )}
 
-      {needsIdentityId && (
+      {identityId && (
         <Box sx={{ mb: 3 }}>
           <TextField
-            label="Workload Identity Client ID"
-            helperText="Required for OIDC authentication in the deployment workflow"
+            label="Workload Identity Client ID (auto-configured)"
             value={identityId}
-            onChange={e => onIdentityIdChange(e.target.value)}
             size="small"
             fullWidth
-            required
+            InputProps={{ readOnly: true }}
           />
         </Box>
       )}

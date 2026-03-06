@@ -18,6 +18,7 @@ export function getWizardStep(state: PipelineDeploymentState): 0 | 1 | 2 | 3 | 4
     case 'AppInstallationNeeded':
       return 0;
     case 'CheckingRepo':
+    case 'WorkloadIdentitySetup':
     case 'ReadyForSetup':
       return 1;
     case 'SetupPRCreating':

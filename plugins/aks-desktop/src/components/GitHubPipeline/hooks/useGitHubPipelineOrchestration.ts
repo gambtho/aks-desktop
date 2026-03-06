@@ -32,6 +32,8 @@ import type { UsePRPollingResult } from './usePRPolling';
 import { usePRPolling } from './usePRPolling';
 import type { UseWorkflowPollingResult } from './useWorkflowPolling';
 import { useWorkflowPolling } from './useWorkflowPolling';
+import type { UseWorkloadIdentitySetupReturn } from './useWorkloadIdentitySetup';
+import { useWorkloadIdentitySetup } from './useWorkloadIdentitySetup';
 
 interface UseGitHubPipelineOrchestrationProps {
   clusterName: string;
@@ -62,7 +64,6 @@ export interface UseGitHubPipelineOrchestrationResult {
   isCheckingInstall: boolean;
   pipeline: UseGitHubPipelineStateResult;
   identityId: string;
-  setIdentityId: React.Dispatch<React.SetStateAction<string>>;
   localAppName: string;
   setLocalAppName: React.Dispatch<React.SetStateAction<string>>;
   checkRepoAndApp: (options?: { silent?: boolean }) => Promise<void>;
@@ -73,6 +74,7 @@ export interface UseGitHubPipelineOrchestrationResult {
   agentPrDiscoveryPollNow: () => void;
   workflowPolling: UseWorkflowPollingResult;
   deploymentHealth: UseDeploymentHealthResult;
+  identitySetup: UseWorkloadIdentitySetupReturn;
 }
 
 /**
@@ -120,6 +122,8 @@ export const useGitHubPipelineOrchestration = ({
   const containerConfigRef = useRef(containerConfig);
   containerConfigRef.current = containerConfig;
 
+  const identitySetup = useWorkloadIdentitySetup();
+
   const [identityId, setIdentityId] = useState('');
   const [localAppName, setLocalAppName] = useState(appName || '');
 
@@ -137,6 +141,25 @@ export const useGitHubPipelineOrchestration = ({
       setLocalAppName(selectedRepo.repo);
     }
   }, [localAppName, selectedRepo]);
+
+  // Auto-advance when workload identity setup completes
+  useEffect(() => {
+    if (
+      identitySetup.status === 'done' &&
+      identitySetup.result &&
+      pipeline.state.deploymentState === 'WorkloadIdentitySetup'
+    ) {
+      setIdentityId(identitySetup.result.clientId);
+      pipeline.updateConfig({ identityId: identitySetup.result.clientId });
+      pipeline.setIdentityReady();
+    }
+  }, [
+    identitySetup.status,
+    identitySetup.result,
+    pipeline.state.deploymentState,
+    pipeline.updateConfig,
+    pipeline.setIdentityReady,
+  ]);
 
   // Track whether auth has succeeded at least once during this wizard session.
   // The cross-tree auth sync can briefly flicker isAuthenticated true → false
@@ -435,6 +458,7 @@ export const useGitHubPipelineOrchestration = ({
     selectedRepo,
     repoKey,
     identityId,
+    tenantId,
     configIdentityId: pipeline.state.config?.identityId,
     namespace,
     clusterName,
@@ -513,7 +537,6 @@ export const useGitHubPipelineOrchestration = ({
     isCheckingInstall,
     pipeline,
     identityId,
-    setIdentityId,
     localAppName,
     setLocalAppName,
     checkRepoAndApp,
@@ -524,5 +547,6 @@ export const useGitHubPipelineOrchestration = ({
     agentPrDiscoveryPollNow: agentPrDiscovery.pollNow,
     workflowPolling,
     deploymentHealth,
+    identitySetup,
   };
 };

@@ -14,6 +14,7 @@ import { DeploymentStatusScreen } from './components/DeploymentStatusScreen';
 import { PipelineConfiguredScreen } from './components/PipelineConfiguredScreen';
 import { PRStatusScreen } from './components/PRStatusScreen';
 import { WizardShell } from './components/WizardShell';
+import { WorkloadIdentitySetup } from './components/WorkloadIdentitySetup';
 import { useGitHubPipelineOrchestration } from './hooks/useGitHubPipelineOrchestration';
 import { getWizardStep } from './utils/getWizardStep';
 
@@ -130,7 +131,6 @@ export default function GitHubPipelineWizard({
     isCheckingInstall,
     pipeline,
     identityId,
-    setIdentityId,
     localAppName,
     setLocalAppName,
     checkRepoAndApp,
@@ -141,6 +141,7 @@ export default function GitHubPipelineWizard({
     agentPrDiscoveryPollNow,
     workflowPolling,
     deploymentHealth,
+    identitySetup,
   } = useGitHubPipelineOrchestration({
     clusterName,
     namespace,
@@ -216,6 +217,19 @@ export default function GitHubPipelineWizard({
       case 'CheckingRepo':
         return <LoadingSpinner message="Checking repository readiness..." />;
 
+      case 'WorkloadIdentitySetup': {
+        if (!selectedRepo) return <LoadingSpinner message="Loading..." />;
+        return (
+          <WorkloadIdentitySetup
+            subscriptionId={subscriptionId}
+            resourceGroup={resourceGroup}
+            namespace={namespace}
+            repo={selectedRepo}
+            identitySetup={identitySetup}
+          />
+        );
+      }
+
       case 'ReadyForSetup': {
         if (!pipeline.state.config) return <LoadingSpinner message="Loading configuration..." />;
 
@@ -225,7 +239,6 @@ export default function GitHubPipelineWizard({
           <AgentSetupReview
             config={pipeline.state.config}
             identityId={identityId}
-            onIdentityIdChange={setIdentityId}
             appName={localAppName}
             onAppNameChange={setLocalAppName}
             filesExist={filesAlreadyExist}
@@ -365,14 +378,13 @@ export default function GitHubPipelineWizard({
         );
       }
       case 'ReadyForSetup': {
-        const needsIdentity = !pipeline.state.config?.identityId.trim() && !identityId.trim();
         const needsApp = !pipeline.state.config?.appName.trim() && !localAppName.trim();
         const readiness = pipeline.state.repoReadiness;
         const filesExist = !!(readiness?.hasSetupWorkflow && readiness?.hasAgentConfig);
         return (
           <Button
             variant="contained"
-            disabled={needsIdentity || needsApp}
+            disabled={needsApp}
             onClick={handleCreateSetupPR}
             startIcon={<Icon icon={filesExist ? 'mdi:robot-outline' : 'mdi:source-pull'} />}
             sx={{ textTransform: 'none' }}

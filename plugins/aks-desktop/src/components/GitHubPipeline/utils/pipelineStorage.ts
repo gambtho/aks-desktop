@@ -15,6 +15,7 @@ export const RESUMABLE_STATES: ReadonlySet<PipelineDeploymentState> =
   new Set<PipelineDeploymentState>([
     'AppInstallationNeeded',
     'CheckingRepo',
+    'WorkloadIdentitySetup',
     'ReadyForSetup',
     'SetupPRCreating',
     'SetupPRAwaitingMerge',

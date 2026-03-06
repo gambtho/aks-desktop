@@ -8,6 +8,7 @@ import type { PipelineDeploymentState } from '../types';
 
 export const ANNOTATION_PIPELINE_REPOS = 'aks-project/pipeline-repos';
 export const ANNOTATION_WORKLOAD_IDENTITY = 'aks-project/workload-identity-id';
+export const ANNOTATION_WORKLOAD_TENANT = 'aks-project/workload-identity-tenant';
 
 const MERGE_PATCH_HEADERS = {
   Accept: 'application/json',
@@ -19,6 +20,7 @@ interface UsePipelineAnnotationSyncProps {
   selectedRepo: GitHubRepo | null;
   repoKey: string | null;
   identityId: string;
+  tenantId: string;
   configIdentityId: string | undefined;
   namespace: string;
   clusterName: string;
@@ -36,6 +38,7 @@ export const usePipelineAnnotationSync = ({
   selectedRepo,
   repoKey,
   identityId,
+  tenantId,
   configIdentityId,
   namespace,
   clusterName,
@@ -91,6 +94,12 @@ export const usePipelineAnnotationSync = ({
           annotations[ANNOTATION_WORKLOAD_IDENTITY] = resolvedIdentityId;
         }
 
+        const existingTenant =
+          namespaceInstance?.jsonData?.metadata?.annotations?.[ANNOTATION_WORKLOAD_TENANT];
+        if (tenantId && !existingTenant) {
+          annotations[ANNOTATION_WORKLOAD_TENANT] = tenantId;
+        }
+
         await clusterRequest(`/api/v1/namespaces/${namespace}`, {
           method: 'PATCH',
           body: JSON.stringify({ metadata: { annotations } }),
@@ -120,5 +129,6 @@ export const usePipelineAnnotationSync = ({
     namespace,
     clusterName,
     identityId,
+    tenantId,
   ]);
 };

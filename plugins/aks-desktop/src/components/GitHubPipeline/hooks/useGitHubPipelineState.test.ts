@@ -37,6 +37,10 @@ function transitionTo(
   }
 
   // Most paths go through Configured → CheckingRepo
+  // Ensure config is set so identity check passes (avoids WorkloadIdentitySetup detour)
+  if (!result.current.state.config) {
+    act(() => result.current.setConfig(validConfig));
+  }
   act(() => result.current.setCheckingRepo());
   if (target === 'CheckingRepo') return;
 
@@ -45,7 +49,22 @@ function transitionTo(
     return;
   }
 
-  // ReadyForSetup (files missing)
+  if (target === 'WorkloadIdentitySetup') {
+    // Need config without identity to trigger WorkloadIdentitySetup
+    act(() => result.current.setAppInstallNeeded());
+    act(() => result.current.updateConfig({ identityId: '' }));
+    act(() => result.current.setCheckingRepo());
+    act(() =>
+      result.current.setRepoReadiness({
+        hasSetupWorkflow: false,
+        hasAgentConfig: false,
+        hasDeployWorkflow: false,
+      })
+    );
+    return;
+  }
+
+  // ReadyForSetup (files missing, config has identity)
   act(() =>
     result.current.setRepoReadiness({
       hasSetupWorkflow: false,
@@ -187,10 +206,29 @@ describe('useGitHubPipelineState', () => {
   });
 
   describe('setRepoReadiness', () => {
-    it('should transition to ReadyForSetup when files are missing', () => {
+    it('should transition to WorkloadIdentitySetup when files are missing and no identity', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
-      transitionTo(result, 'CheckingRepo');
+      // Set config without identity
+      act(() => result.current.setConfig({ ...validConfig, identityId: '' }));
+      act(() => result.current.setCheckingRepo());
+
+      act(() => {
+        result.current.setRepoReadiness({
+          hasSetupWorkflow: false,
+          hasAgentConfig: false,
+          hasDeployWorkflow: false,
+        });
+      });
+
+      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+    });
+
+    it('should transition to ReadyForSetup when files are missing and identity exists', () => {
+      const { result } = renderHook(() => useGitHubPipelineState(null));
+
+      act(() => result.current.setConfig(validConfig));
+      act(() => result.current.setCheckingRepo());
 
       act(() => {
         result.current.setRepoReadiness({
@@ -225,12 +263,33 @@ describe('useGitHubPipelineState', () => {
       expect(result.current.state.deploymentState).toBe('AgentTaskCreating');
     });
 
-    it('should transition to ReadyForSetup when repo is set up but config is incomplete', () => {
+    it('should transition to WorkloadIdentitySetup when repo is set up but identity is missing', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
-      // Config with empty identityId/appName
+      // Config with empty identityId
       act(() => {
         result.current.setConfig({ ...validConfig, identityId: '', appName: '' });
+      });
+      act(() => {
+        result.current.setCheckingRepo();
+      });
+      act(() => {
+        result.current.setRepoReadiness({
+          hasSetupWorkflow: true,
+          hasAgentConfig: true,
+          hasDeployWorkflow: false,
+        });
+      });
+
+      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+    });
+
+    it('should transition to ReadyForSetup when repo is set up but appName is missing', () => {
+      const { result } = renderHook(() => useGitHubPipelineState(null));
+
+      // Config with identity but empty appName
+      act(() => {
+        result.current.setConfig({ ...validConfig, appName: '' });
       });
       act(() => {
         result.current.setCheckingRepo();
@@ -375,10 +434,11 @@ describe('useGitHubPipelineState', () => {
       expect(result.current.state.deploymentState).toBe('AgentTaskCreating');
     });
 
-    it('should retry to ReadyForSetup when repo is already configured but config incomplete', () => {
+    it('should retry to WorkloadIdentitySetup when failed during identity setup', () => {
       const { result } = renderHook(() => useGitHubPipelineState(null));
 
-      // Simulate the skip-setup path: CheckingRepo → ReadyForSetup (with both files present)
+      // Config without identity to trigger WorkloadIdentitySetup
+      act(() => result.current.setConfig({ ...validConfig, identityId: '' }));
       act(() => result.current.setCheckingRepo());
       act(() =>
         result.current.setRepoReadiness({
@@ -387,8 +447,33 @@ describe('useGitHubPipelineState', () => {
           hasDeployWorkflow: false,
         })
       );
-      // Without complete config, this lands on ReadyForSetup.
-      // lastSuccessfulState tracks this, so retry returns there.
+      // Without identity, this lands on WorkloadIdentitySetup (transient).
+      // Retry maps transient states to their parent (Configured).
+      expect(result.current.state.deploymentState).toBe('WorkloadIdentitySetup');
+      act(() => {
+        result.current.setFailed('Error');
+      });
+      act(() => {
+        result.current.retry();
+      });
+      expect(result.current.state.deploymentState).toBe('Configured');
+    });
+
+    it('should retry to ReadyForSetup when repo is already configured but appName missing', () => {
+      const { result } = renderHook(() => useGitHubPipelineState(null));
+
+      // Config with identity but no appName
+      act(() => result.current.setConfig({ ...validConfig, appName: '' }));
+      act(() => result.current.setCheckingRepo());
+      act(() =>
+        result.current.setRepoReadiness({
+          hasSetupWorkflow: true,
+          hasAgentConfig: true,
+          hasDeployWorkflow: false,
+        })
+      );
+      // With identity but no appName, this lands on ReadyForSetup.
+      expect(result.current.state.deploymentState).toBe('ReadyForSetup');
       act(() => {
         result.current.setFailed('Error');
       });

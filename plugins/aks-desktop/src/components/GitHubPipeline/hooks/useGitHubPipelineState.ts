@@ -21,6 +21,7 @@ export const SCHEMA_VERSION = 1;
  */
 const RETRYABLE_STATE_MAP: Partial<Record<PipelineDeploymentState, PipelineDeploymentState>> = {
   CheckingRepo: 'Configured',
+  WorkloadIdentitySetup: 'Configured',
   SetupPRCreating: 'ReadyForSetup',
 };
 
@@ -38,6 +39,7 @@ const VALID_DEPLOYMENT_STATES: ReadonlySet<PipelineDeploymentState> =
     'GitHubAuthorizationNeeded',
     'AppInstallationNeeded',
     'CheckingRepo',
+    'WorkloadIdentitySetup',
     'ReadyForSetup',
     'SetupPRCreating',
     'SetupPRAwaitingMerge',
@@ -131,6 +133,8 @@ type PipelineAction =
   | { type: 'SET_APP_INSTALL_NEEDED' }
   | { type: 'SET_CHECKING_REPO' }
   | { type: 'SET_REPO_READINESS'; readiness: RepoReadiness }
+  | { type: 'SET_IDENTITY_SETUP' }
+  | { type: 'SET_IDENTITY_READY' }
   | { type: 'SET_CREATING_SETUP_PR' }
   | { type: 'SET_SETUP_PR_CREATED'; pr: PRTracking }
   | { type: 'SET_SETUP_PR_MERGED' }
@@ -154,6 +158,8 @@ const VALID_TRANSITIONS: Record<
   SET_APP_INSTALL_NEEDED: new Set(['CheckingRepo', 'AppInstallationNeeded']),
   SET_CHECKING_REPO: new Set(['Configured', 'AppInstallationNeeded']),
   SET_REPO_READINESS: new Set(['CheckingRepo', 'AppInstallationNeeded']),
+  SET_IDENTITY_SETUP: new Set(['CheckingRepo', 'ReadyForSetup']),
+  SET_IDENTITY_READY: new Set(['WorkloadIdentitySetup']),
   SET_CREATING_SETUP_PR: new Set(['ReadyForSetup']),
   SET_SETUP_PR_CREATED: new Set(['SetupPRCreating']),
   SET_SETUP_PR_MERGED: new Set(['SetupPRAwaitingMerge', 'ReadyForSetup']),
@@ -252,12 +258,22 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
         };
         break;
       }
-      const configComplete =
-        Boolean(state.config?.identityId?.trim()) && Boolean(state.config?.appName?.trim());
+      const hasIdentity = Boolean(state.config?.identityId?.trim());
+      const configComplete = hasIdentity && Boolean(state.config?.appName?.trim());
       if (readiness.hasSetupWorkflow && readiness.hasAgentConfig && configComplete) {
         next = {
           ...state,
           deploymentState: 'AgentTaskCreating',
+          repoReadiness: readiness,
+          updatedAt: now(),
+        };
+        break;
+      }
+      // If no workload identity yet, route through identity setup first
+      if (!hasIdentity) {
+        next = {
+          ...state,
+          deploymentState: 'WorkloadIdentitySetup',
           repoReadiness: readiness,
           updatedAt: now(),
         };
@@ -271,6 +287,22 @@ function pipelineReducer(state: PipelineState, action: PipelineAction): Pipeline
       };
       break;
     }
+
+    case 'SET_IDENTITY_SETUP':
+      next = {
+        ...state,
+        deploymentState: 'WorkloadIdentitySetup',
+        updatedAt: now(),
+      };
+      break;
+
+    case 'SET_IDENTITY_READY':
+      next = {
+        ...state,
+        deploymentState: 'ReadyForSetup',
+        updatedAt: now(),
+      };
+      break;
 
     case 'SET_CREATING_SETUP_PR':
       next = {
@@ -395,6 +427,8 @@ export interface UseGitHubPipelineStateResult {
   setAppInstallNeeded: () => void;
   setCheckingRepo: () => void;
   setRepoReadiness: (readiness: RepoReadiness) => void;
+  setIdentitySetup: () => void;
+  setIdentityReady: () => void;
   setCreatingSetupPR: () => void;
   setSetupPRCreated: (pr: PRTracking) => void;
   setSetupPRMerged: () => void;
@@ -471,6 +505,8 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
     (readiness: RepoReadiness) => dispatch({ type: 'SET_REPO_READINESS', readiness }),
     []
   );
+  const setIdentitySetup = useCallback(() => dispatch({ type: 'SET_IDENTITY_SETUP' }), []);
+  const setIdentityReady = useCallback(() => dispatch({ type: 'SET_IDENTITY_READY' }), []);
   const setCreatingSetupPR = useCallback(() => dispatch({ type: 'SET_CREATING_SETUP_PR' }), []);
   const setSetupPRCreated = useCallback(
     (pr: PRTracking) => dispatch({ type: 'SET_SETUP_PR_CREATED', pr }),
@@ -507,6 +543,8 @@ export const useGitHubPipelineState = (repoKey: string | null): UseGitHubPipelin
     setAppInstallNeeded,
     setCheckingRepo,
     setRepoReadiness,
+    setIdentitySetup,
+    setIdentityReady,
     setCreatingSetupPR,
     setSetupPRCreated,
     setSetupPRMerged,
