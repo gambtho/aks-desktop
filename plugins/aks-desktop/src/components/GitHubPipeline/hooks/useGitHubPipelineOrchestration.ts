@@ -12,7 +12,11 @@ import {
 import type { ContainerConfig } from '../../DeployWizard/hooks/useContainerConfiguration';
 import { PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import { useGitHubAuthContext } from '../GitHubAuthContext';
-import { createSetupPR, triggerCopilotAgent } from '../utils/pipelineOrchestration';
+import {
+  createPipelineSecrets,
+  createSetupPR,
+  triggerCopilotAgent,
+} from '../utils/pipelineOrchestration';
 import {
   ACTIVE_PIPELINE_KEY_PREFIX,
   getActivePipeline,
@@ -336,7 +340,10 @@ export const useGitHubPipelineOrchestration = ({
       case 'AgentTaskCreating':
         if (gitHubAuth.octokit && pipeline.state.config && !agentTriggerInFlightRef.current) {
           agentTriggerInFlightRef.current = true;
-          triggerCopilotAgent(gitHubAuth.octokit, pipeline.state.config)
+          const currentOctokit = gitHubAuth.octokit;
+          const currentConfig = pipeline.state.config;
+          createPipelineSecrets(currentOctokit, currentConfig)
+            .then(() => triggerCopilotAgent(currentOctokit, currentConfig))
             .then(issue => pipeline.setAgentTriggered(issue))
             .catch(err => {
               console.error('Failed to trigger Copilot agent:', err);

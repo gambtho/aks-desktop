@@ -29,10 +29,14 @@ describe('agentTemplates', () => {
       expect(result).toContain('Cluster: my-cluster');
       expect(result).toContain('Resource Group: my-rg');
       expect(result).toContain('Namespace: production');
-      expect(result).toContain('Tenant ID: tenant-123');
-      expect(result).toContain('Identity ID: identity-456');
-      expect(result).toContain('Subscription ID: sub-789');
       expect(result).toContain('Service Type: LoadBalancer');
+      // Sensitive values should NOT be hardcoded — referenced as GitHub secrets
+      expect(result).not.toContain('tenant-123');
+      expect(result).not.toContain('identity-456');
+      expect(result).not.toContain('sub-789');
+      expect(result).toContain('AZURE_CLIENT_ID');
+      expect(result).toContain('AZURE_TENANT_ID');
+      expect(result).toContain('AZURE_SUBSCRIPTION_ID');
     });
 
     it('should include MCP tool references', () => {
@@ -65,15 +69,17 @@ describe('agentTemplates', () => {
       const result = generateAgentConfig(validConfig);
       expect(result).toContain('azure/login@v2');
       expect(result).toContain('azure/aks-set-context@v4');
+      expect(result).toContain('azure/use-kubelogin@v1');
+      expect(result).toContain('kubelogin convert-kubeconfig -l workloadidentity');
       expect(result).toContain('workflow_dispatch');
       expect(result).toContain('cluster-name');
       expect(result).toContain('resource-group');
       expect(result).toContain('namespace');
-      expect(result).toContain('subscription-id');
       expect(result).toContain('${{ inputs.cluster-name }}');
       expect(result).toContain('${{ inputs.resource-group }}');
       expect(result).toContain('${{ inputs.namespace }}');
-      expect(result).toContain('${{ inputs.subscription-id }}');
+      // Subscription ID comes from secrets, not workflow inputs
+      expect(result).toContain('secrets.AZURE_SUBSCRIPTION_ID');
       expect(result).not.toContain('Trigger on push to main');
     });
 
@@ -118,7 +124,9 @@ describe('agentTemplates', () => {
       expect(result).toContain('Replicas: 3');
       expect(result).toContain('CPU Request: 200m');
       expect(result).toContain('Memory Limit: 1Gi');
-      expect(result).toContain('Environment Variables: NODE_ENV=production');
+      expect(result).toContain('Environment Variables (values stored as GitHub secrets)');
+      expect(result).toContain('NODE_ENV');
+      expect(result).toContain('secrets.APP_ENV_NODE_ENV');
       expect(result).toContain('Liveness Probe: enabled (path: /health)');
       expect(result).toContain('Readiness Probe: enabled (path: /ready)');
       expect(result).toContain('Startup Probe: disabled');

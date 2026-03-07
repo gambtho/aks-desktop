@@ -15,6 +15,7 @@ const {
   mockCreatePullRequest,
   mockCreateIssue,
   mockAssignIssueToCopilot,
+  mockSetRepoSecrets,
 } = vi.hoisted(() => ({
   mockGetDefaultBranchSha: vi.fn(),
   mockCreateBranch: vi.fn(),
@@ -22,6 +23,7 @@ const {
   mockCreatePullRequest: vi.fn(),
   mockCreateIssue: vi.fn(),
   mockAssignIssueToCopilot: vi.fn(),
+  mockSetRepoSecrets: vi.fn(),
 }));
 
 vi.mock('../../../utils/github/github-api', () => ({
@@ -31,6 +33,7 @@ vi.mock('../../../utils/github/github-api', () => ({
   createPullRequest: mockCreatePullRequest,
   createIssue: mockCreateIssue,
   assignIssueToCopilot: mockAssignIssueToCopilot,
+  setRepoSecrets: mockSetRepoSecrets,
 }));
 
 vi.mock('./agentTemplates', async () => {
@@ -181,11 +184,16 @@ describe('pipelineOrchestration', () => {
       const issueBody = mockCreateIssue.mock.calls[0][4] as string;
       expect(issueBody).toContain('cluster: "my-cluster"');
       expect(issueBody).toContain('namespace: "production"');
-      expect(issueBody).toContain('tenantId: "tenant-123"');
-      expect(issueBody).toContain('identityId: "identity-456"');
-      expect(issueBody).toContain('subscriptionId: "sub-789"');
       expect(issueBody).toContain('appName: "my-app"');
       expect(issueBody).toContain('serviceType: "LoadBalancer"');
+      // Sensitive values should NOT appear in issue body
+      expect(issueBody).not.toContain('tenant-123');
+      expect(issueBody).not.toContain('identity-456');
+      expect(issueBody).not.toContain('sub-789');
+      // Should reference secrets instead
+      expect(issueBody).toContain('secrets.AZURE_CLIENT_ID');
+      expect(issueBody).toContain('secrets.AZURE_TENANT_ID');
+      expect(issueBody).toContain('secrets.AZURE_SUBSCRIPTION_ID');
     });
 
     it('should include optional fields in payload when provided', async () => {
@@ -257,6 +265,8 @@ describe('pipelineOrchestration', () => {
       expect(issueBody).toContain('cpuRequest: "200m"');
       expect(issueBody).toContain('memoryLimit: "1Gi"');
       expect(issueBody).toContain('key: "NODE_ENV"');
+      expect(issueBody).toContain('secretRef: "APP_ENV_NODE_ENV"');
+      expect(issueBody).not.toContain('value: "production"');
       expect(issueBody).toContain('livenessProbe:');
       expect(issueBody).toContain('path: "/health"');
       expect(issueBody).toContain('hpa:');

@@ -9,6 +9,7 @@ import {
   createOrUpdateFile,
   createPullRequest,
   getDefaultBranchSha,
+  setRepoSecrets,
 } from '../../../utils/github/github-api';
 import {
   AGENT_CONFIG_PATH,
@@ -113,10 +114,50 @@ export const createSetupPR = async (
 };
 
 /**
+ * Converts an env var key to a GitHub Actions secret name.
+ * Prefixes with `APP_ENV_` and converts to UPPER_SNAKE_CASE.
+ */
+export const toEnvSecretName = (key: string): string =>
+  `APP_ENV_${key
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '_')}`;
+
+/**
+ * Creates GitHub Actions repository secrets for sensitive pipeline values (Step D-pre).
+ *
+ * Stores Azure credentials and user-defined environment variables as encrypted
+ * repository secrets so they never appear in issue bodies or agent config files.
+ */
+export const createPipelineSecrets = async (
+  octokit: Octokit,
+  config: PipelineConfig
+): Promise<void> => {
+  const { owner, repo } = config.repo;
+
+  const secrets: Record<string, string> = {
+    AZURE_CLIENT_ID: config.identityId,
+    AZURE_TENANT_ID: config.tenantId,
+    AZURE_SUBSCRIPTION_ID: config.subscriptionId,
+  };
+
+  const envVars = config.containerConfig?.envVars?.filter(e => e.key.trim()) ?? [];
+  for (const { key, value } of envVars) {
+    secrets[toEnvSecretName(key)] = value;
+  }
+
+  await setRepoSecrets(octokit, owner, repo, secrets);
+};
+
+/**
  * Creates an issue with the AKS config payload and assigns it to Copilot (Step D).
  * Uses a two-step approach:
  *   1. Create the issue (without assignees — `copilot` is not a valid assignee)
  *   2. Assign `copilot-swe-agent[bot]` via the assignees endpoint with `agent_assignment`
+ *
+ * Sensitive values (Azure credentials, env var values) are stored as GitHub
+ * repository secrets by `createPipelineSecrets` before this function is called.
+ * The issue body references secret names instead of plaintext values.
  *
  * Called automatically after the setup PR merge is detected.
  */
@@ -131,7 +172,8 @@ export const triggerCopilotAgent = async (
     throw new Error(`Invalid pipeline config: ${validation.errors.join(', ')}`);
   }
 
-  // PRD Section 6.3: payload in a single fenced block to reduce ambiguity
+  // PRD Section 6.3: payload in a single fenced block to reduce ambiguity.
+  // Sensitive values are NOT included — they are stored as GitHub secrets.
   const cc = config.containerConfig;
   const envVars = cc?.envVars?.filter(e => e.key.trim()) ?? [];
 
@@ -141,9 +183,9 @@ export const triggerCopilotAgent = async (
     `cluster: "${escapeYamlValue(config.clusterName)}"`,
     `resourceGroup: "${escapeYamlValue(config.resourceGroup)}"`,
     `namespace: "${escapeYamlValue(config.namespace)}"`,
-    `tenantId: "${escapeYamlValue(config.tenantId)}"`,
-    `identityId: "${escapeYamlValue(config.identityId)}"`,
-    `subscriptionId: "${escapeYamlValue(config.subscriptionId)}"`,
+    '',
+    '# Azure credentials are stored as GitHub repository secrets:',
+    '# secrets.AZURE_CLIENT_ID, secrets.AZURE_TENANT_ID, secrets.AZURE_SUBSCRIPTION_ID',
     '',
     '# Application',
     `appName: "${escapeYamlValue(config.appName)}"`,
@@ -167,14 +209,14 @@ export const triggerCopilotAgent = async (
           `memoryLimit: "${escapeYamlValue(cc.memoryLimit)}"`,
         ].join('\n')
       : null,
-    // Environment Variables
+    // Environment Variables — keys only, values stored as GitHub secrets
     envVars.length > 0
       ? [
           '',
-          '# Environment Variables',
+          '# Environment Variables (values stored as GitHub secrets)',
           'envVars:',
           ...envVars.map(
-            e => `  - key: "${escapeYamlValue(e.key)}"\n    value: "${escapeYamlValue(e.value)}"`
+            e => `  - key: "${escapeYamlValue(e.key)}"\n    secretRef: "${toEnvSecretName(e.key)}"`
           ),
         ].join('\n')
       : null,

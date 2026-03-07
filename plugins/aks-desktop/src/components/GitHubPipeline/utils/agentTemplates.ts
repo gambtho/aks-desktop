@@ -3,6 +3,7 @@
 
 import { DEFAULT_IMAGE_TAG, PIPELINE_WORKFLOW_FILENAME } from '../constants';
 import type { PipelineConfig } from '../types';
+import { toEnvSecretName } from './pipelineOrchestration';
 import { getProbeConfigs, renderProbeMarkdown } from './probeHelpers';
 
 const CONTAINERIZATION_MCP_VERSION = '1.2.0';
@@ -44,6 +45,25 @@ jobs:
         run: |
           npx containerization-assist-mcp@${CONTAINERIZATION_MCP_VERSION} list-policies --show-merged
 `;
+
+/**
+ * Generates workflow instructions for injecting user-defined environment
+ * variables from GitHub secrets into Kubernetes.
+ */
+const generateEnvVarWorkflowInstructions = (config: PipelineConfig): string => {
+  const envVars = config.containerConfig?.envVars?.filter(e => e.key.trim()) ?? [];
+  if (envVars.length === 0) return '\n';
+
+  const secretMappings = envVars
+    .map(e => `${e.key}=\${{ secrets.${toEnvSecretName(e.key)} }}`)
+    .join(' ');
+
+  return `
+- Before applying manifests, create a Kubernetes Secret from GitHub secrets for environment variables:
+  \`kubectl create secret generic \${{ inputs.namespace }}-env --from-literal=${secretMappings} -n \${{ inputs.namespace }} --dry-run=client -o yaml | kubectl apply -f -\`
+- In the Deployment manifest, reference this secret via \`envFrom: [{ secretRef: { name: <namespace>-env } }]\`
+`;
+};
 
 /**
  * Generates the `.github/agents/containerization.agent.md` file,
@@ -89,7 +109,9 @@ export const generateAgentConfig = (config: PipelineConfig): string => {
     const envVars = cc.envVars?.filter(e => e.key.trim()) ?? [];
     if (envVars.length > 0) {
       optionalLines.push(
-        `- Environment Variables: ${envVars.map(e => `${e.key}=${e.value}`).join(', ')}`
+        `- Environment Variables (values stored as GitHub secrets): ${envVars
+          .map(e => `${e.key} → \`secrets.${toEnvSecretName(e.key)}\``)
+          .join(', ')}`
       );
     }
 
@@ -212,10 +234,8 @@ All generated deployment files must be placed under \`/deploy/\`:
 - Cluster: ${config.clusterName}
 - Resource Group: ${config.resourceGroup}
 - Namespace: ${config.namespace}
-- Tenant ID: ${config.tenantId}
-- Identity ID: ${config.identityId}
-- Subscription ID: ${config.subscriptionId}
-- Service Type: ${config.serviceType}${optionalSection}
+- Service Type: ${config.serviceType}
+- Azure credentials are stored as GitHub repository secrets: \`AZURE_CLIENT_ID\`, \`AZURE_TENANT_ID\`, \`AZURE_SUBSCRIPTION_ID\`${optionalSection}
 
 ## Deployment Annotations (mandatory)
 All generated Deployment manifests MUST include these annotations in \`metadata.annotations\`:
@@ -238,11 +258,13 @@ Generate \`.github/workflows/${PIPELINE_WORKFLOW_FILENAME}\` with the following:
   - \`cluster-name\` (default: \`${config.clusterName}\`)
   - \`resource-group\` (default: \`${config.resourceGroup}\`)
   - \`namespace\` (default: \`${config.namespace}\`)
-  - \`subscription-id\` (default: \`${config.subscriptionId}\`)
 - Do NOT add a \`push\` trigger — deployment is always triggered explicitly
-- Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`\${{ inputs.subscription-id }}\`)
+- Use \`azure/login@v2\` with OIDC (\`secrets.AZURE_CLIENT_ID\`, \`secrets.AZURE_TENANT_ID\`, \`secrets.AZURE_SUBSCRIPTION_ID\`)
 - Use \`azure/aks-set-context@v4\` with cluster \`\${{ inputs.cluster-name }}\` and resource group \`\${{ inputs.resource-group }}\`
-- Run: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
+- Install kubelogin (required for AAD-enabled AKS clusters): \`azure/use-kubelogin@v1\` with \`skip-cache: true\`
+- Convert kubeconfig to use kubelogin: \`kubelogin convert-kubeconfig -l workloadidentity\`${generateEnvVarWorkflowInstructions(
+    config
+  )}- Run: \`kubectl apply -f deploy/kubernetes/ -n \${{ inputs.namespace }}\`
 - After applying manifests, annotate each Deployment with the run URL:
   \`kubectl annotate deployment --all -n \${{ inputs.namespace }} aks-project/pipeline-run-url=\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }} --overwrite\`
 
