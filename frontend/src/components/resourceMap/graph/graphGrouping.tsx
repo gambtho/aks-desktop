@@ -256,22 +256,31 @@ export function groupGraph(
   }
 
   if (groupBy === 'node') {
-    // Create groups based on the Kube resource node
+    // Create groups based on the Kube resource node.
+    // Pods without a nodeName (e.g. pending due to quota or scheduling failures)
+    // are grouped under an "Unscheduled" sentinel so they remain visible.
     components = groupByProperty(
       components,
       component => {
+        let pod: Pod | undefined;
         if (component.nodes) {
-          return (component.nodes.find(node => node.kubeObject?.kind === 'Pod')?.kubeObject as Pod)
-            ?.spec?.nodeName;
+          pod = component.nodes.find(node => node.kubeObject?.kind === 'Pod')?.kubeObject as
+            | Pod
+            | undefined;
+        } else if (component.kubeObject?.kind === 'Pod') {
+          pod = component.kubeObject as Pod;
         }
-
-        return (component.kubeObject as Pod)?.spec?.nodeName;
+        if (pod) {
+          return pod.spec?.nodeName ?? 'Unscheduled';
+        }
+        // Non-Pod resources without a Pod in their component: leave ungrouped
+        return undefined;
       },
       { label: 'Node', allowSingleMemberGroup: true }
     );
 
     components.forEach(component => {
-      if (!component.kubeObject) {
+      if (!component.kubeObject && component.label !== 'Unscheduled') {
         component.kubeObject = k8sNodes.find(
           namespace => namespace.metadata.name === component.label
         );
