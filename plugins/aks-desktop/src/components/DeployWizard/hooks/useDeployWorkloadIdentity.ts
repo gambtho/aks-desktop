@@ -89,6 +89,7 @@ export const useDeployWorkloadIdentity = (): UseDeployWorkloadIdentityReturn => 
         isManagedNamespace,
         namespaceName: namespace,
         azureRbacEnabled,
+        purpose: 'Workload Identity',
         onStatusChange: setStatus,
       });
 

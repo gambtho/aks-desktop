@@ -25,6 +25,8 @@ export interface EnsureIdentityWithRolesConfig {
   namespaceName?: string;
   /** Whether Azure RBAC for Kubernetes is enabled on the cluster. */
   azureRbacEnabled?: boolean;
+  /** Purpose label for the resource group tags (e.g. 'GitHub Actions Identity', 'Workload Identity'). */
+  purpose?: string;
   onStatusChange: (status: RoleAssignmentStatus) => void;
 }
 
@@ -48,6 +50,7 @@ export async function ensureIdentityWithRoles(
     isManagedNamespace,
     namespaceName,
     azureRbacEnabled,
+    purpose,
     onStatusChange,
   } = config;
 
@@ -62,6 +65,7 @@ export async function ensureIdentityWithRoles(
     resourceGroup,
     identityResourceGroup,
     identityName,
+    purpose,
     onStatusChange,
   });
 

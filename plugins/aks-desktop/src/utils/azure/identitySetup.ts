@@ -13,6 +13,8 @@ export interface IdentitySetupConfig {
   /** Resource group where the identity will be created. */
   identityResourceGroup: string;
   identityName: string;
+  /** Purpose label for the resource group tags (e.g. 'GitHub Actions Identity', 'Workload Identity'). */
+  purpose?: string;
   onStatusChange: (status: IdentitySetupStatus) => void;
 }
 
@@ -30,8 +32,14 @@ export interface IdentitySetupResult {
 export async function ensureIdentityAndResourceGroup(
   config: IdentitySetupConfig
 ): Promise<IdentitySetupResult> {
-  const { subscriptionId, resourceGroup, identityResourceGroup, identityName, onStatusChange } =
-    config;
+  const {
+    subscriptionId,
+    resourceGroup,
+    identityResourceGroup,
+    identityName,
+    purpose,
+    onStatusChange,
+  } = config;
 
   // Step 1: Ensure identity resource group exists
   onStatusChange('creating-rg');
@@ -52,10 +60,12 @@ export async function ensureIdentityAndResourceGroup(
     if (!location) {
       throw new Error(`Could not determine location from resource group '${resourceGroup}'`);
     }
+    const tags = [`purpose=${purpose ?? 'Managed Identity'}`, 'createdBy=AKS Desktop'];
     const rgResult = await createResourceGroup({
       resourceGroupName: identityResourceGroup,
       location,
       subscriptionId,
+      tags,
     });
     if (!rgResult.success) {
       throw new Error(rgResult.error ?? 'Failed to create identity resource group');

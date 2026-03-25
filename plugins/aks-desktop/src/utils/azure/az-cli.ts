@@ -888,8 +888,9 @@ export async function createResourceGroup(options: {
   resourceGroupName: string;
   location: string;
   subscriptionId: string;
+  tags?: string[];
 }): Promise<{ success: boolean; error?: string }> {
-  const { resourceGroupName, location, subscriptionId } = options;
+  const { resourceGroupName, location, subscriptionId, tags } = options;
 
   if (!isValidGuid(subscriptionId)) {
     return { success: false, error: `Invalid subscription ID format: '${subscriptionId}'` };
@@ -909,8 +910,7 @@ export async function createResourceGroup(options: {
       '--subscription',
       subscriptionId,
       '--tags',
-      'purpose=GitHub Actions Identity',
-      'createdBy=AKS Desktop',
+      ...(tags ?? ['createdBy=AKS Desktop']),
     ],
     'Creating resource group:',
     'create resource group'

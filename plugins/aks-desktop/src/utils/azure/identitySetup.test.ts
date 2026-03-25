@@ -81,6 +81,7 @@ describe('ensureIdentityAndResourceGroup', () => {
       resourceGroupName: 'identity-rg',
       location: 'eastus',
       subscriptionId: baseConfig.subscriptionId,
+      tags: ['purpose=Managed Identity', 'createdBy=AKS Desktop'],
     });
     expect(mockCreateManagedIdentity).toHaveBeenCalledWith({
       identityName: 'id-my-app-github',
