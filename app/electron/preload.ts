@@ -23,6 +23,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 const SECURE_STORAGE_SAVE = 'secure-storage-save';
 const SECURE_STORAGE_LOAD = 'secure-storage-load';
 const SECURE_STORAGE_DELETE = 'secure-storage-delete';
+const GET_INSTALL_ID = 'get-install-id';
 const GITHUB_OAUTH_START = 'github-oauth-start';
 const GITHUB_OAUTH_REFRESH = 'github-oauth-refresh';
 const GITHUB_OAUTH_CALLBACK = 'github-oauth-callback';
@@ -101,6 +102,9 @@ contextBridge.exposeInMainWorld('desktopApi', {
   ): Promise<{ success: boolean; content?: string; error?: string }> => {
     return ipcRenderer.invoke('get-license-file', filename);
   },
+
+  // aksd: Per-install UUID for anonymous usage telemetry
+  getInstallId: (): Promise<string> => ipcRenderer.invoke(GET_INSTALL_ID),
 
   platform: process.platform,
 
