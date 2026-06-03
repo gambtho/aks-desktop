@@ -23,6 +23,9 @@ export const SECURE_STORAGE_SAVE = 'secure-storage-save';
 export const SECURE_STORAGE_LOAD = 'secure-storage-load';
 export const SECURE_STORAGE_DELETE = 'secure-storage-delete';
 
+// Install ID
+export const GET_INSTALL_ID = 'get-install-id';
+
 // GitHub OAuth
 export const GITHUB_OAUTH_START = 'github-oauth-start';
 export const GITHUB_OAUTH_REFRESH = 'github-oauth-refresh';
