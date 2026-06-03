@@ -24,6 +24,7 @@ const SECURE_STORAGE_SAVE = 'secure-storage-save';
 const SECURE_STORAGE_LOAD = 'secure-storage-load';
 const SECURE_STORAGE_DELETE = 'secure-storage-delete';
 const GET_INSTALL_ID = 'get-install-id';
+const GET_APP_INFO = 'get-app-info';
 const GITHUB_OAUTH_START = 'github-oauth-start';
 const GITHUB_OAUTH_REFRESH = 'github-oauth-refresh';
 const GITHUB_OAUTH_CALLBACK = 'github-oauth-callback';
@@ -105,6 +106,14 @@ contextBridge.exposeInMainWorld('desktopApi', {
 
   // aksd: Per-install UUID for anonymous usage telemetry
   getInstallId: (): Promise<string> => ipcRenderer.invoke(GET_INSTALL_ID),
+
+  // aksd: Host info for telemetry session-start properties
+  getAppInfo: (): Promise<{
+    os: string;
+    osMajor: string;
+    arch: string;
+    electronVersion: string;
+  }> => ipcRenderer.invoke(GET_APP_INFO),
 
   platform: process.platform,
 
