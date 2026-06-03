@@ -44,6 +44,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { handleOAuthCallback, setupGitHubOAuthHandlers } from './github-oauth';
 import i18n from './i18next.config';
+import { getOrCreateInstallId } from './install-id';
+import { GET_INSTALL_ID } from './ipc-channels';
 import {
   addToPath,
   ArtifactHubHeadlampPkg,
@@ -1894,6 +1896,9 @@ async function startElectron() {
 
     // aksd: Secure storage via Electron safeStorage API
     setupSecureStorageHandlers();
+
+    // aksd: Per-install UUID for anonymous usage telemetry
+    ipcMain.handle(GET_INSTALL_ID, () => getOrCreateInstallId(app.getPath('userData')));
 
     // aksd: GitHub OAuth web flow (start, callback, refresh) via main process
     // In dev mode, uses a localhost HTTP callback server instead of the custom URL scheme.
