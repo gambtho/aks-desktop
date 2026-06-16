@@ -1,0 +1,64 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the Apache 2.0.
+
+const KEY = 'aksdInstallId';
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+declare const __brand: unique symbol;
+/** Opaque type for the anonymous per-install UUID. Prevents accidental PII injection. */
+export type InstallId = string & { readonly [__brand]: 'InstallId' };
+
+/**
+ * In-memory cache so the install ID is stable within a session even when
+ * localStorage.setItem throws (quota, private mode). Without this, repeated
+ * calls in a degraded environment would mint a new UUID each time and split
+ * one user into many in App Insights.
+ */
+let cachedInstallId: InstallId | undefined;
+
+/**
+ * Return the per-install UUID, generating and persisting one if needed.
+ *
+ * Backed by renderer localStorage with an in-memory fallback cache. A
+ * corrupt/non-v4 stored value is regenerated. If localStorage is unavailable
+ * (private mode, quota, etc.), the freshly minted UUID is cached for the
+ * lifetime of the module so subsequent calls return the same value — the
+ * contract is "approximately per install", with session-level stability as
+ * the floor.
+ *
+ * Anonymous: never concatenated with PII before use as an App Insights
+ * correlation key.
+ */
+export function getOrCreateInstallId(): InstallId {
+  if (cachedInstallId) return cachedInstallId;
+
+  try {
+    const existing = localStorage.getItem(KEY);
+    if (existing && UUID_V4_RE.test(existing)) {
+      cachedInstallId = existing as InstallId;
+      return cachedInstallId;
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[aksd-telemetry] installId: localStorage read failed, using session-only ID', e);
+  }
+
+  const fresh = crypto.randomUUID() as InstallId;
+  // Cache BEFORE attempting setItem so a throw still produces a stable ID.
+  cachedInstallId = fresh;
+  try {
+    localStorage.setItem(KEY, fresh);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[aksd-telemetry] installId: localStorage write failed, ID is session-only', e);
+  }
+  return fresh;
+}
+
+/**
+ * Test-only: clear the in-memory cache so each test starts from a clean
+ * slate. Not part of the public runtime contract.
+ */
+export function __resetInstallIdCacheForTests(): void {
+  cachedInstallId = undefined;
+}
