@@ -1,0 +1,131 @@
+// AKS Desktop telemetry — comprehensive export query.
+//
+// Run in: Application Insights resource -> Logs.
+// Then:   Export -> Export to CSV.
+//
+// Produces every number the workbook shows, in tidy long format:
+//   Section | Day | K1 | K2 | K3 | Metric | Value
+//
+// Two things built in deliberately:
+//
+//  1. Daily distinct counts DO NOT SUM. A session or install spanning two
+//     days is counted in both. Sections that matter therefore emit both
+//     `_daily` rows (trend shape) and a separate `_total` row computed over
+//     the whole window (headline numbers). Never add up the daily rows.
+//
+//  2. dcount is approximate (HyperLogLog, ~1-2% error). Fine for trends,
+//     not for "exactly how many installs". Add an accuracy argument -
+//     dcount(session_Id, 4) - if a specific number must be exact.
+//
+// The `build` discriminator separates the two live client shapes. Legacy
+// clients put the feature in the event NAME with an empty dimensions bag;
+// current clients use five envelope names with populated dimensions. Do NOT
+// discriminate on customDimensions.appVersion - the deployed build only
+// attaches it to headlamp.session-start, so that test misfiles every
+// current-build feature event as legacy, silently.
+//
+// See README.md in this directory for the per-section caveats.
+
+let win = 30d;
+let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);
+let ev = customEvents
+| where timestamp > ago(win)
+| extend build = case(
+    name !in (envelopes), 'legacy',
+    array_length(bag_keys(customDimensions)) == 0, 'legacy',
+    'current')
+| extend feature = iff(name == 'headlamp.feature', tostring(customDimensions.feature), iff(name in (envelopes), '', name)),
+         status = coalesce(tostring(customDimensions.status), 'unknown'),
+         kind = coalesce(tostring(customDimensions.resourceKind), '');
+let sv = ev
+| where name == 'headlamp.session-start'
+| summarize SessionAppVersion = max(tostring(customDimensions.appVersion)) by session_Id;
+let evv = ev
+| join kind=leftouter sv on session_Id
+| extend appVer = coalesce(tostring(customDimensions.appVersion), SessionAppVersion, iff(build == 'legacy', 'legacy build', 'unknown'));
+let firstSeen = customEvents
+| where timestamp > ago(90d)
+| where name in (envelopes) and array_length(bag_keys(customDimensions)) > 0
+| summarize firstSeen = min(timestamp) by user_Id;
+union
+(ev
+   | summarize Sessions=dcount(session_Id), Installs=dcountif(user_Id,build=='current'), LegacyClients=dcountif(user_Id,build=='legacy'), Events=count() by Day=bin(timestamp,1d)
+   | extend p=pack('Sessions',todouble(Sessions),'Installs',todouble(Installs),'LegacyClients',todouble(LegacyClients),'Events',todouble(Events))
+   | mv-expand kind=array p
+   | project Section='overview_daily', Day, K1='', K2='', K3='', Metric=tostring(p[0]), Value=todouble(p[1])),
+(ev
+   | summarize Sessions=dcount(session_Id), Installs=dcountif(user_Id,build=='current'), LegacyClients=dcountif(user_Id,build=='legacy'), Events=count()
+   | extend p=pack('Sessions',todouble(Sessions),'Installs',todouble(Installs),'LegacyClients',todouble(LegacyClients),'Events',todouble(Events))
+   | mv-expand kind=array p
+   | project Section='overview_total', Day=datetime(null), K1='', K2='', K3='', Metric=tostring(p[0]), Value=todouble(p[1])),
+(evv
+   | summarize Value=todouble(dcount(session_Id)) by Day=bin(timestamp,1d), K1=appVer
+   | project Section='versions_daily', Day, K1, K2='', K3='', Metric='Sessions', Value),
+(evv
+   | where build=='current'
+   | summarize Value=todouble(dcount(user_Id)) by Day=bin(timestamp,1d)
+   | project Section='dau', Day, K1='', K2='', K3='', Metric='ActiveInstalls', Value),
+(ev
+   | where build=='current'
+   | summarize by user_Id, Day=bin(timestamp,1d)
+   | join kind=leftouter firstSeen on user_Id
+   | extend K1=iff(bin(firstSeen,1d)>=Day,'New','Returning')
+   | summarize Value=todouble(dcount(user_Id)) by Day, K1
+   | project Section='cohorts', Day, K1, K2='', K3='', Metric='Installs', Value),
+(ev
+   | where name=='headlamp.session-start'
+   | summarize Value=todouble(dcount(session_Id)) by K1=tostring(customDimensions.os), K2=tostring(customDimensions.arch), K3=tostring(customDimensions.electronVersion)
+   | project Section='environment', Day=datetime(null), K1, K2, K3, Metric='Sessions', Value),
+(ev
+   | where name=='headlamp.plugins-loaded' and array_length(bag_keys(customDimensions))>0
+   | summarize Value=todouble(dcount(session_Id)) by K1=tostring(customDimensions.totalCount), K2=tostring(customDimensions.enabledCount), K3=iff(tostring(customDimensions.knownEnabledIds) has 'aks-desktop','aksd-on','aksd-off')
+   | project Section='plugins', Day=datetime(null), K1, K2, K3, Metric='Sessions', Value),
+(ev
+   | where feature startswith 'aksd.'
+   | summarize Value=todouble(dcount(session_Id)) by K1=feature, K2=status
+   | project Section='funnel_total', Day=datetime(null), K1, K2, K3='', Metric='Sessions', Value),
+(ev
+   | where feature startswith 'aksd.'
+   | summarize Value=todouble(dcount(session_Id)) by Day=bin(timestamp,1d), K1=feature, K2=status
+   | project Section='funnel_daily', Day, K1, K2, K3='', Metric='Sessions', Value),
+(ev
+   | where name=='headlamp.exception'
+   | summarize SessionsAffected=todouble(dcount(session_Id)), InstallsAffected=todouble(dcount(user_Id)), EventsCapped=todouble(count()) by K1=tostring(customDimensions.area), K2=tostring(customDimensions.errorClass), K3=coalesce(tostring(customDimensions.phase),'(none)')
+   | extend p=pack('SessionsAffected',SessionsAffected,'InstallsAffected',InstallsAffected,'EventsCapped',EventsCapped)
+   | mv-expand kind=array p
+   | project Section='errors', Day=datetime(null), K1, K2, K3, Metric=tostring(p[0]), Value=todouble(p[1])),
+(ev
+   | summarize Total=todouble(dcount(session_Id)), Affected=todouble(dcountif(session_Id,name=='headlamp.exception')) by Day=bin(timestamp,1d)
+   | extend p=pack('SessionsTotal',Total,'SessionsAffected',Affected)
+   | mv-expand kind=array p
+   | project Section='errors_daily', Day, K1='', K2='', K3='', Metric=tostring(p[0]), Value=todouble(p[1])),
+(evv
+   | where name=='headlamp.exception'
+   | summarize Value=todouble(dcount(session_Id)) by K1=appVer, K2=tostring(customDimensions.area)
+   | project Section='errors_by_version', Day=datetime(null), K1, K2, K3='', Metric='SessionsAffected', Value),
+(ev
+   | where isnotempty(feature)
+   | summarize Sessions=todouble(dcount(session_Id)), Events=todouble(count()) by K1=feature
+   | extend p=pack('Sessions',Sessions,'Events',Events)
+   | mv-expand kind=array p
+   | project Section='features', Day=datetime(null), K1, K2='', K3='', Metric=tostring(p[0]), Value=todouble(p[1])),
+(ev
+   | where isnotempty(kind)
+   | summarize Value=todouble(dcount(session_Id)) by K1=kind, K2=feature
+   | project Section='kinds', Day=datetime(null), K1, K2, K3='', Metric='Sessions', Value),
+(ev
+   | summarize Total=todouble(dcount(session_Id)), WithShape=todouble(dcountif(session_Id,name=='headlamp.cluster-shape'))
+   | extend p=pack('SessionsTotal',Total,'SessionsWithShape',WithShape)
+   | mv-expand kind=array p
+   | project Section='shape_coverage', Day=datetime(null), K1='', K2='', K3='', Metric=tostring(p[0]), Value=todouble(p[1])),
+(ev
+   | where name=='headlamp.cluster-shape'
+   | summarize Value=todouble(count()) by K1=tostring(customDimensions.kubernetesMinor), K2=tostring(customDimensions.aksTier), K3=strcat(tostring(customDimensions.region),'|',tostring(customDimensions.nodeCountBucket),'|',tostring(customDimensions.namespaceCountBucket))
+   | project Section='shape', Day=datetime(null), K1, K2, K3, Metric='Clusters', Value),
+(ev
+   | where build=='current'
+   | summarize Sessions=todouble(dcount(session_Id)), Events=todouble(count()) by K1=coalesce(operation_Name,'(none)')
+   | extend p=pack('Sessions',Sessions,'Events',Events)
+   | mv-expand kind=array p
+   | project Section='routes', Day=datetime(null), K1, K2='', K3='', Metric=tostring(p[0]), Value=todouble(p[1]))
+| order by Section asc, Day asc, K1 asc

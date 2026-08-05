@@ -1,0 +1,37 @@
+// Which Application Insights components (and therefore which subscriptions)
+// are we actually querying?
+//
+// Run in: Application Insights resource -> Logs.
+//
+// `_ResourceId` is the ARM resource ID of the component that INGESTED the
+// row, in the form:
+//
+//   /subscriptions/<sub>/resourcegroups/<rg>/providers/microsoft.insights/components/<name>
+//
+// Splitting on '/' yields ['', 'subscriptions', '<sub>', 'resourcegroups',
+// '<rg>', ...] - hence index 2 for the subscription and index 4 for the
+// resource group.
+//
+// Expect one row per component in scope. Against a single App Insights
+// resource this returns exactly one row; it only spreads out when the query
+// runs at workspace scope or across several components (crossComponentResources).
+//
+// `_ResourceId` exists only on workspace-based Application Insights. If the
+// column is unrecognized, the resource is classic.
+
+// Unique subscriptions.
+customEvents
+| extend SubscriptionId = tostring(split(_ResourceId, '/')[2])
+| distinct SubscriptionId
+
+// Unique components, with volume and the window they cover.
+// customEvents
+// | extend SubscriptionId = tostring(split(_ResourceId, '/')[2]),
+//          ResourceGroup  = tostring(split(_ResourceId, '/')[4]),
+//          Component      = tostring(split(_ResourceId, '/')[8])
+// | summarize Events = count(),
+//             Sessions = dcount(session_Id),
+//             FirstSeen = min(timestamp),
+//             LastSeen = max(timestamp)
+//   by SubscriptionId, ResourceGroup, Component
+// | order by Events desc

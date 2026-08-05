@@ -1,0 +1,670 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# AKS Desktop — usage & health\n\nBuilt from the `customEvents` emitted by `plugins/aks-desktop/src/telemetry`. Deployed clients emit **two different event shapes**; every query below normalizes across both. See `docs/telemetry/README.md` for the schema, the client-shape discriminator, and the caveat behind each tile."
+      },
+      "name": "title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "p-appinsights",
+            "version": "KqlParameterItem/1.0",
+            "name": "AppInsights",
+            "label": "Application Insights",
+            "type": 5,
+            "isRequired": true,
+            "multiSelect": false,
+            "typeSettings": {
+              "resourceTypeFilter": {
+                "microsoft.insights/components": true
+              },
+              "additionalResourceOptions": []
+            }
+          },
+          {
+            "id": "p-timerange",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 604800000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 3600000 },
+                { "durationMs": 86400000 },
+                { "durationMs": 604800000 },
+                { "durationMs": 2592000000 },
+                { "durationMs": 7776000000 }
+              ]
+            }
+          },
+          {
+            "id": "p-clientfilter",
+            "version": "KqlParameterItem/1.0",
+            "name": "ClientFilter",
+            "label": "Client build",
+            "type": 2,
+            "isRequired": true,
+            "value": "all",
+            "typeSettings": {
+              "additionalResourceOptions": []
+            },
+            "jsonData": "[{\"value\":\"all\",\"label\":\"All clients\",\"selected\":true},{\"value\":\"current\",\"label\":\"Current (envelope schema)\"},{\"value\":\"legacy\",\"label\":\"Legacy (pre-envelope)\"}]"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 11,
+      "content": {
+        "version": "LinkItem/1.0",
+        "style": "tabs",
+        "links": [
+          {
+            "id": "tab-adoption",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Adoption & retention",
+            "subTarget": "adoption",
+            "style": "link"
+          },
+          {
+            "id": "tab-funnels",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Funnel health",
+            "subTarget": "funnels",
+            "style": "link"
+          },
+          {
+            "id": "tab-reliability",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Reliability",
+            "subTarget": "reliability",
+            "style": "link"
+          },
+          {
+            "id": "tab-usage",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Feature usage & cluster shape",
+            "subTarget": "usage",
+            "style": "link"
+          }
+        ]
+      },
+      "name": "tabs"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet ev = customEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where '{ClientFilter}' == 'all' or build == '{ClientFilter}';\nev\n| summarize\n    Sessions = dcount(session_Id),\n    Installs = dcountif(user_Id, build == 'current'),\n    Legacy = dcountif(user_Id, build == 'legacy'),\n    Events = count()\n| extend p = pack('Sessions', Sessions, 'Installs (current build)', Installs, 'Legacy clients (approx.)', Legacy, 'Events', Events)\n| mv-expand kind=array p\n| project Metric = tostring(p[0]), Value = toint(p[1])",
+              "size": 3,
+              "title": "At a glance",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "tiles",
+              "tileSettings": {
+                "titleContent": { "columnMatch": "Metric", "formatter": 1 },
+                "leftContent": {
+                  "columnMatch": "Value",
+                  "formatter": 12,
+                  "formatOptions": { "palette": "auto" }
+                },
+                "showBorder": true
+              }
+            },
+            "name": "adoption-glance"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "**Installs** counts `user_Id`, which the current build stamps with the stable `installId` UUID. Legacy clients never set it, so their `user_Id` is SDK-generated and rotates — that column is an upper-bound device estimate, not an install count. The two are deliberately not summed."
+            },
+            "name": "adoption-glance-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\ncustomEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where build == 'current'\n| summarize ['Active installs'] = dcount(user_Id), Sessions = dcount(session_Id) by bin(timestamp, 1d)\n| order by timestamp asc",
+              "size": 0,
+              "title": "Daily active installs and sessions (current build only)",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "timechart"
+            },
+            "name": "adoption-dau"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet sv = customEvents\n| where name == 'headlamp.session-start'\n| summarize SessionAppVersion = max(tostring(customDimensions.appVersion)) by session_Id;\ncustomEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| join kind=leftouter sv on session_Id\n| extend AppVersion = coalesce(tostring(customDimensions.appVersion), SessionAppVersion, iff(build == 'legacy', 'legacy build', 'unknown'))\n| summarize Sessions = dcount(session_Id) by bin(timestamp, 1d), AppVersion\n| order by timestamp asc",
+              "size": 0,
+              "title": "Version rollout — are installs moving off the legacy build?",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "barchart",
+              "chartSettings": { "yAxis": ["Sessions"], "group": "AppVersion" }
+            },
+            "name": "adoption-versions"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "The deployed build only puts `appVersion` on `headlamp.session-start`, so this tile resolves each event's version by joining back to its session rather than reading the dimension per-event. The `coalesce` also reads a per-event `appVersion` first, so it keeps working unchanged once the current code (which stamps every envelope in `send()`) ships."
+            },
+            "name": "adoption-versions-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet cur = customEvents\n| where timestamp > ago(90d)\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where build == 'current';\nlet firstSeen = cur\n| summarize firstSeen = min(timestamp) by user_Id;\ncur\n| where timestamp between ({TimeRange:start} .. {TimeRange:end})\n| summarize by user_Id, day = bin(timestamp, 1d)\n| join kind=leftouter firstSeen on user_Id\n| extend cohort = iff(bin(firstSeen, 1d) >= day, 'New', 'Returning')\n| summarize Installs = dcount(user_Id) by day, cohort\n| order by day asc",
+              "size": 0,
+              "title": "New vs returning installs (90-day lookback)",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "barchart",
+              "chartSettings": { "yAxis": ["Installs"], "group": "cohort" }
+            },
+            "name": "adoption-cohorts"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "This tile deliberately ignores the time-range parameter for its lookback — it needs 90 days of history to tell a genuinely new install from a returning one, so it filters on `{TimeRange:start}`/`{TimeRange:end}` in KQL instead. It is current-build only (legacy `user_Id` rotates, which would fake an endless stream of new installs). An install first seen before the 90-day window reads as _Returning_."
+            },
+            "name": "adoption-cohorts-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "customEvents\n| where name == 'headlamp.session-start'\n| summarize Sessions = count(), Installs = dcount(user_Id) by\n    OS = tostring(customDimensions.os),\n    Arch = tostring(customDimensions.arch),\n    Electron = tostring(customDimensions.electronVersion),\n    Locale = tostring(customDimensions.locale)\n| order by Sessions desc",
+              "size": 0,
+              "title": "Environment mix (session-start; current build only)",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table"
+            },
+            "name": "adoption-env"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "customEvents\n| where name == 'headlamp.plugins-loaded'\n| where array_length(bag_keys(customDimensions)) > 0\n| extend\n    Total = toint(customDimensions.totalCount),\n    Enabled = toint(customDimensions.enabledCount),\n    ThirdParty = toint(customDimensions.thirdPartyCount),\n    AksdEnabled = iff(tostring(customDimensions.knownEnabledIds) has 'aks-desktop', 'yes', 'no')\n| summarize Sessions = dcount(session_Id) by Total, Enabled, ThirdParty, AksdEnabled\n| order by Sessions desc",
+              "size": 0,
+              "title": "Plugin load-out — is the AKS plugin actually enabled?",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table"
+            },
+            "name": "adoption-plugins"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "`knownEnabledIds` is filtered against `KNOWN_PLUGIN_IDS` before sending, so it only ever contains `aks-desktop` — third-party plugin names are never transmitted, only counted (`index.ts:385`). `AksdEnabled = no` with a healthy `Enabled` count means the user is running Headlamp with the AKS plugin switched off."
+            },
+            "name": "adoption-plugins-caveat"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "adoption"
+      },
+      "name": "group-adoption"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "Funnels cover the three AKS-specific flows: **project-create**, **project-import** and **deploy**. Stages count _distinct sessions reaching that status_, not raw events, so a user retrying inside one session is counted once.\n\nOnly the current build carries a `status` dimension, so these tiles are effectively current-build only regardless of the client filter."
+            },
+            "name": "funnel-intro"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet ev = customEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where '{ClientFilter}' == 'all' or build == '{ClientFilter}'\n| extend feature = iff(name == 'headlamp.feature', tostring(customDimensions.feature), iff(name in (envelopes), '', name)), status = coalesce(tostring(customDimensions.status), 'unknown');\nev\n| where feature startswith 'aksd.'\n| summarize\n    Opened = dcountif(session_Id, status == 'opened'),\n    Started = dcountif(session_Id, status == 'started'),\n    Succeeded = dcountif(session_Id, status == 'succeeded'),\n    Partial = dcountif(session_Id, status == 'completed'),\n    Failed = dcountif(session_Id, status == 'failed'),\n    Cancelled = dcountif(session_Id, status == 'cancelled')\n  by Funnel = feature\n| extend ['Start rate %'] = iff(Opened == 0, todouble(''), round(100.0 * Started / todouble(Opened), 1))\n| extend ['Success rate %'] = iff(Started == 0, todouble(''), round(100.0 * (Succeeded + Partial) / todouble(Started), 1))\n| order by Funnel asc",
+              "size": 0,
+              "title": "Funnel conversion by flow",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Start rate %",
+                    "formatter": 8,
+                    "formatOptions": { "palette": "greenRed" }
+                  },
+                  {
+                    "columnMatch": "Success rate %",
+                    "formatter": 8,
+                    "formatOptions": { "palette": "greenRed" }
+                  }
+                ]
+              }
+            },
+            "name": "funnel-table"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "`aksd.project-import` reports `completed` when _some_ namespaces imported and others failed (`ImportAKSProjects.tsx:383`). It is folded into **Success rate** alongside `succeeded` but broken out as **Partial** — a rising Partial column is a real regression a plain success rate would hide.\n\n`aksd.deploy` emits `opened` from `DeployButton` and `started`/`succeeded`/`failed` from the wizard. It has **no `cancelled` path**, so abandonment shows only as `opened` with no terminal status — expect its Start rate to read lower than the other two flows for reasons that are not a UX problem."
+            },
+            "name": "funnel-table-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\ncustomEvents\n| extend feature = iff(name == 'headlamp.feature', tostring(customDimensions.feature), iff(name in (envelopes), '', name)), status = coalesce(tostring(customDimensions.status), 'unknown')\n| where feature startswith 'aksd.'\n| where status in ('succeeded', 'completed', 'failed', 'cancelled')\n| summarize Sessions = dcount(session_Id) by status, feature\n| order by Sessions desc",
+              "size": 0,
+              "title": "Terminal outcomes by flow",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "barchart",
+              "chartSettings": { "yAxis": ["Sessions"], "group": "status" }
+            },
+            "name": "funnel-outcomes"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\ncustomEvents\n| extend feature = iff(name == 'headlamp.feature', tostring(customDimensions.feature), iff(name in (envelopes), '', name)), status = coalesce(tostring(customDimensions.status), 'unknown')\n| where feature startswith 'aksd.'\n| summarize\n    Started = dcountif(session_Id, status == 'started'),\n    Succeeded = dcountif(session_Id, status in ('succeeded', 'completed'))\n  by bin(timestamp, 1d)\n| extend ['Success rate %'] = iff(Started == 0, todouble(''), round(100.0 * Succeeded / todouble(Started), 1))\n| project timestamp, ['Success rate %']\n| order by timestamp asc",
+              "size": 0,
+              "title": "Success rate over time (all AKS flows)",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "linechart"
+            },
+            "name": "funnel-trend"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet flows = customEvents\n| extend feature = iff(name == 'headlamp.feature', tostring(customDimensions.feature), iff(name in (envelopes), '', name)), status = coalesce(tostring(customDimensions.status), 'unknown')\n| where feature startswith 'aksd.';\nlet started = flows | where status == 'started' | summarize by session_Id, feature;\nlet terminal = flows | where status in ('succeeded', 'completed', 'failed', 'cancelled') | summarize by session_Id, feature;\nstarted\n| join kind=leftanti terminal on session_Id, feature\n| summarize ['Sessions started with no outcome'] = dcount(session_Id) by Funnel = feature\n| order by ['Sessions started with no outcome'] desc",
+              "size": 0,
+              "title": "Silent drop-off — flows started that never reported an outcome",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Sessions started with no outcome",
+                    "formatter": 3,
+                    "formatOptions": { "palette": "orange" }
+                  }
+                ]
+              }
+            },
+            "name": "funnel-dropoff"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "A session that reaches `started` but never reports a terminal status means the app was closed or crashed mid-flow, or the terminal-tracking guard (`terminalTrackedRef`) never fired. This is the one funnel signal that a plain conversion rate cannot show, because the session simply vanishes from the denominator's numerator rather than appearing as a failure."
+            },
+            "name": "funnel-dropoff-caveat"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "funnels"
+      },
+      "name": "group-funnels"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "> **Read event counts here as a floor, not a total.** `trackError` drops everything past **5 events per `area:errorClass` per session** (`telemetry/index.ts:56`). _Sessions affected_ is the trustworthy measure; _Events_ is censored and will flatten out exactly when things are going worst."
+            },
+            "name": "reliability-warning"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet ev = customEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where '{ClientFilter}' == 'all' or build == '{ClientFilter}';\nev\n| summarize\n    Total = dcount(session_Id),\n    Affected = dcountif(session_Id, name == 'headlamp.exception')\n| extend ErrorFree = iff(Total == 0, todouble(''), round(100.0 * (Total - Affected) / todouble(Total), 1))\n| extend p = pack('Sessions', todouble(Total), 'Sessions with an error', todouble(Affected), 'Error-free %', ErrorFree)\n| mv-expand kind=array p\n| project Metric = tostring(p[0]), Value = todouble(p[1])",
+              "size": 3,
+              "title": "Session health",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "tiles",
+              "tileSettings": {
+                "titleContent": { "columnMatch": "Metric", "formatter": 1 },
+                "leftContent": {
+                  "columnMatch": "Value",
+                  "formatter": 12,
+                  "formatOptions": { "palette": "auto" }
+                },
+                "showBorder": true
+              }
+            },
+            "name": "reliability-glance"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet ev = customEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where '{ClientFilter}' == 'all' or build == '{ClientFilter}';\nev\n| where name == 'headlamp.exception'\n| summarize\n    ['Sessions affected'] = dcount(session_Id),\n    ['Installs affected'] = dcount(user_Id),\n    ['Events (capped)'] = count()\n  by\n    Area = tostring(customDimensions.area),\n    ['Error class'] = tostring(customDimensions.errorClass),\n    Phase = coalesce(tostring(customDimensions.phase), '(none)')\n| order by ['Sessions affected'] desc",
+              "size": 0,
+              "title": "Errors by area, class and phase",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Sessions affected",
+                    "formatter": 3,
+                    "formatOptions": { "palette": "red" }
+                  }
+                ]
+              }
+            },
+            "name": "reliability-breakdown"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "`area` is one of `project-create`, `project-import`, `deploy`, `kubernetes`, `plugin-ui`. Anything in **`plugin-ui`** came from `TelemetryErrorBoundary` and is hard-coded to `UnknownError` / `failed` (`TelemetryErrorBoundary.tsx:41`) — a React render crash, not a classified failure. Treat a spike there as \"go read the boundary\", not as a diagnosis.\n\n`deploy` failures are only ever `ValidationError` or `UnknownError`; the wizard has no other classification, so do not read the absence of `NetworkError` as evidence the network is healthy."
+            },
+            "name": "reliability-breakdown-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet ev = customEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where '{ClientFilter}' == 'all' or build == '{ClientFilter}';\nev\n| summarize\n    Total = dcount(session_Id),\n    Affected = dcountif(session_Id, name == 'headlamp.exception')\n  by bin(timestamp, 1d)\n| extend ['Sessions affected %'] = iff(Total == 0, todouble(''), round(100.0 * Affected / todouble(Total), 1))\n| project timestamp, ['Sessions affected %']\n| order by timestamp asc",
+              "size": 0,
+              "title": "Share of sessions hitting an error, over time",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "linechart"
+            },
+            "name": "reliability-trend"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let sv = customEvents\n| where name == 'headlamp.session-start'\n| summarize SessionAppVersion = max(tostring(customDimensions.appVersion)) by session_Id;\nlet errs = customEvents\n| where name == 'headlamp.exception'\n| extend Area = tostring(customDimensions.area);\nlet sessions = customEvents\n| summarize by session_Id;\nerrs\n| join kind=leftouter sv on session_Id\n| extend ['App version'] = coalesce(tostring(customDimensions.appVersion), SessionAppVersion, 'unknown')\n| summarize ['Sessions affected'] = dcount(session_Id) by Area, ['App version']\n| order by ['Sessions affected'] desc",
+              "size": 0,
+              "title": "Errors by app version — did a release make things worse?",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "barchart",
+              "chartSettings": { "yAxis": ["Sessions affected"], "group": "Area" }
+            },
+            "name": "reliability-by-version"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "Raw affected-session counts, not rates — a version with more installs will show more errors. Compare against **Daily active installs** on the Adoption tab before concluding a release regressed. `unknown` means the session's `session-start` fell outside the selected time range, which is common for long-running desktop sessions."
+            },
+            "name": "reliability-by-version-caveat"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "reliability"
+      },
+      "name": "group-reliability"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet ev = customEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where '{ClientFilter}' == 'all' or build == '{ClientFilter}'\n| extend feature = iff(name == 'headlamp.feature', tostring(customDimensions.feature), iff(name in (envelopes), '', name));\nev\n| where isnotempty(feature)\n| summarize\n    Sessions = dcount(session_Id),\n    ['Current-build installs'] = dcountif(user_Id, build == 'current'),\n    Events = count()\n  by Feature = feature\n| order by Sessions desc\n| take 30",
+              "size": 0,
+              "title": "Feature usage — normalized across both client shapes",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Sessions",
+                    "formatter": 3,
+                    "formatOptions": { "palette": "blue" }
+                  }
+                ]
+              }
+            },
+            "name": "usage-features"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "`headlamp.list-view`, `headlamp.details-view` and `headlamp.object-events` fire on **render**, not on a deliberate click, and re-fire on re-render — the sample data shows a dozen within one second for a single navigation. **Rank features by _Sessions_, never by _Events_**; the Events column measures render churn, not intent, and is useful mainly for spotting a re-render bug."
+            },
+            "name": "usage-features-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "customEvents\n| where name == 'headlamp.feature'\n| extend Feature = tostring(customDimensions.feature), ResourceKind = tostring(customDimensions.resourceKind)\n| where isnotempty(ResourceKind)\n| summarize Sessions = dcount(session_Id) by ResourceKind, Feature\n| order by Sessions desc\n| take 40",
+              "size": 0,
+              "title": "Which resource kinds do people act on? (current build only)",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "barchart",
+              "chartSettings": { "yAxis": ["Sessions"], "group": "Feature" }
+            },
+            "name": "usage-kinds"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "`resourceKind` is clamped to the built-in Kubernetes kind list; anything else collapses to **`CustomResource`**, and heterogeneous bulk actions report **`Multiple`** (`schema.ts:182`). You cannot recover which CRD was involved — that is by design, not a gap to fix."
+            },
+            "name": "usage-kinds-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\nlet ev = customEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where '{ClientFilter}' == 'all' or build == '{ClientFilter}';\nev\n| summarize\n    Total = dcount(session_Id),\n    WithShape = dcountif(session_Id, name == 'headlamp.cluster-shape')\n| extend Coverage = iff(Total == 0, todouble(''), round(100.0 * WithShape / todouble(Total), 1))\n| extend p = pack('Sessions', todouble(Total), 'Reporting cluster shape', todouble(WithShape), 'Coverage %', Coverage)\n| mv-expand kind=array p\n| project Metric = tostring(p[0]), Value = todouble(p[1])",
+              "size": 3,
+              "title": "Cluster-shape coverage",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "tiles",
+              "tileSettings": {
+                "titleContent": { "columnMatch": "Metric", "formatter": 1 },
+                "leftContent": {
+                  "columnMatch": "Value",
+                  "formatter": 12,
+                  "formatOptions": { "palette": "auto" }
+                },
+                "showBorder": true
+              }
+            },
+            "name": "usage-shape-coverage"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "Read this tile **before** the three below it. `trackClusterShape` emits nothing unless _all five_ of k8s version, node count, namespace count, region and tier are non-null, and it dedupes to once per cluster per process (`telemetry/index.ts:312`). Low coverage has two very different causes — nobody opened an AKS cluster, or one ARM field came back null — and the distributions below are only representative to the degree this number is high. In the sample hour, coverage was **zero**."
+            },
+            "name": "usage-shape-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "customEvents\n| where name == 'headlamp.cluster-shape'\n| summarize Clusters = count() by ['Kubernetes minor'] = tostring(customDimensions.kubernetesMinor)\n| order by ['Kubernetes minor'] asc",
+              "size": 1,
+              "title": "Kubernetes minor version",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "barchart"
+            },
+            "customWidth": "50",
+            "name": "usage-shape-k8s"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "customEvents\n| where name == 'headlamp.cluster-shape'\n| summarize Clusters = count() by Tier = tostring(customDimensions.aksTier)\n| order by Clusters desc",
+              "size": 1,
+              "title": "AKS tier",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "piechart"
+            },
+            "customWidth": "50",
+            "name": "usage-shape-tier"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "customEvents\n| where name == 'headlamp.cluster-shape'\n| summarize Clusters = count() by\n    Region = tostring(customDimensions.region),\n    Nodes = tostring(customDimensions.nodeCountBucket),\n    Namespaces = tostring(customDimensions.namespaceCountBucket)\n| order by Clusters desc",
+              "size": 0,
+              "title": "Region and cluster size buckets",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table"
+            },
+            "name": "usage-shape-size"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "`region` passes a shape check rather than an allowlist, so unrecognized values land in **`Other`** (`schema.ts:192`). Node and namespace counts are bucketed client-side — `0`, `1-5`, `6-20`, `21-100`, `100+` and `0`, `1-10`, `11-50`, `51-200`, `200+` — and the raw counts are never sent, so no finer breakdown is recoverable."
+            },
+            "name": "usage-shape-size-caveat"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let envelopes = dynamic(['headlamp.session-start','headlamp.feature','headlamp.exception','headlamp.cluster-shape','headlamp.plugins-loaded']);\ncustomEvents\n| extend build = case(name !in (envelopes), 'legacy', array_length(bag_keys(customDimensions)) == 0, 'legacy', 'current')\n| where build == 'current'\n| summarize Events = count(), Sessions = dcount(session_Id) by Route = coalesce(operation_Name, '(none)')\n| order by Events desc",
+              "size": 0,
+              "title": "Sanitized route distribution (current build only)",
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.insights/components",
+              "crossComponentResources": ["{AppInsights}"],
+              "visualization": "table"
+            },
+            "name": "usage-routes"
+          },
+          {
+            "type": 1,
+            "content": {
+              "json": "A large `unknown` bucket is expected, not a bug: `sanitizeRoute` maps anything outside the fixed route allowlist to `unknown` (`schema.ts:206`), and every Kubernetes resource route falls outside it. Legacy clients are excluded here because they report a raw `file://` install path instead of a route — which is exactly what the sanitizer was added to stop."
+            },
+            "name": "usage-routes-caveat"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "usage"
+      },
+      "name": "group-usage"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
